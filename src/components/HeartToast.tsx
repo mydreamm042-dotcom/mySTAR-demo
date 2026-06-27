@@ -2,12 +2,7 @@
 
 import { useEffect, useState } from 'react'
 
-interface Toast {
-  id: string
-  message: string
-  emoji: string
-  color: string
-}
+interface Toast { id: string; message: string; emoji: string; color: string }
 
 let addToastFn: ((toast: Omit<Toast, 'id'>) => void) | null = null
 
@@ -28,11 +23,11 @@ export default function HeartToast() {
   }, [])
 
   return (
-    <div className="fixed bottom-32 left-0 right-0 flex flex-col items-center gap-2 z-30 pointer-events-none max-w-md mx-auto px-6">
+    <div style={{ position: 'fixed', bottom: 120, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 448, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '0 24px', zIndex: 30, pointerEvents: 'none' }}>
       {toasts.map(t => (
-        <div key={t.id} className="animate-fade-in glass-card px-5 py-3 flex items-center gap-3">
-          <span className="text-2xl animate-pulse-heart">{t.emoji}</span>
-          <span className="text-sm font-medium" style={{ color: t.color }}>{t.message}</span>
+        <div key={t.id} className="animate-fade-in" style={{ background: 'rgba(20,20,32,0.95)', border: `1px solid ${t.color}40`, borderRadius: 16, padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 10, backdropFilter: 'blur(12px)', boxShadow: `0 8px 24px ${t.color}30` }}>
+          <span style={{ fontSize: 24 }}>{t.emoji}</span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: t.color }}>{t.message}</span>
         </div>
       ))}
     </div>

@@ -11,12 +11,8 @@ export default function CreatePage() {
   const [error, setError] = useState('')
 
   const handleCreate = async () => {
-    if (!roomName.trim()) {
-      setError('방 이름을 입력해주세요')
-      return
-    }
-    setLoading(true)
-    setError('')
+    if (!roomName.trim()) { setError('방 이름을 입력해주세요'); return }
+    setLoading(true); setError('')
 
     try {
       const host_session = getSessionToken()
@@ -36,7 +32,6 @@ export default function CreatePage() {
         nickname: '호스트',
         isHost: true,
       })
-
       router.push(`/room/${data.room.code}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : '오류가 발생했습니다')
@@ -45,72 +40,46 @@ export default function CreatePage() {
   }
 
   return (
-    <main className="flex flex-col min-h-dvh px-6 py-10">
-      <button
-        onClick={() => router.back()}
-        className="mb-8 w-10 h-10 flex items-center justify-center rounded-full"
-        style={{ background: 'rgba(255,255,255,0.06)' }}
-      >
+    <main className="flex flex-col min-h-dvh px-6" style={{ paddingTop: 56, paddingBottom: 32 }}>
+      <button onClick={() => router.back()}
+        style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--card2)', border: '1px solid var(--border)', color: 'var(--text2)', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', marginBottom: 32 }}>
         ←
       </button>
 
-      <div className="mb-8 animate-fade-in">
-        <h1 className="text-3xl font-bold mb-2">방 만들기</h1>
-        <p className="text-sm" style={{ color: '#6b7280' }}>
-          오늘 모임의 이름을 정해주세요
-        </p>
+      <div className="animate-fade-in" style={{ marginBottom: 40 }}>
+        <p style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 700, marginBottom: 6, letterSpacing: '0.05em' }}>NEW ROOM</p>
+        <h1 style={{ fontSize: 30, fontWeight: 800, lineHeight: 1.2, marginBottom: 8 }}>방 만들기</h1>
+        <p style={{ color: 'var(--muted2)', fontSize: 14 }}>오늘 모임의 이름을 정해주세요</p>
       </div>
 
-      <div className="flex-1 animate-fade-in">
-        <div className="mb-6">
-          <label className="block text-sm font-medium mb-2" style={{ color: '#9ca3af' }}>
-            모임 이름
-          </label>
-          <input
-            type="text"
-            value={roomName}
-            onChange={(e) => setRoomName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-            placeholder="예: 팀 회식, 대학 동창 모임"
-            maxLength={30}
-            className="w-full px-4 py-4 rounded-2xl text-base outline-none transition-all"
-            style={{
-              background: 'rgba(255,255,255,0.06)',
-              border: '1.5px solid rgba(124, 58, 237, 0.3)',
-              color: '#f0f0f5',
-              fontSize: '16px',
-            }}
-            autoFocus
-          />
-          {error && (
-            <p className="mt-2 text-sm" style={{ color: '#ef4444' }}>{error}</p>
-          )}
-        </div>
+      <div style={{ flex: 1 }}>
+        <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted2)', letterSpacing: '0.05em', display: 'block', marginBottom: 10 }}>모임 이름</label>
+        <input
+          className="input"
+          type="text"
+          value={roomName}
+          onChange={e => setRoomName(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleCreate()}
+          placeholder="예: 팀 회식, 대학 동창 모임"
+          maxLength={30}
+          autoFocus
+        />
+        {error && <p style={{ marginTop: 8, fontSize: 13, color: '#ff6b6b' }}>{error}</p>}
 
-        <div className="glass-card p-4 mb-8">
-          <p className="text-xs font-medium mb-2" style={{ color: '#a78bfa' }}>방 만들면 이런 게 생겨요</p>
-          <ul className="text-sm space-y-1" style={{ color: '#9ca3af' }}>
-            <li>✓ 6자리 참여 코드 + QR코드 자동 생성</li>
-            <li>✓ 1시간마다 인터랙션 알림</li>
-            <li>✓ 하트, 자제 시그널, 별점 익명 전송</li>
-            <li>✓ 종료 시 오늘의 하이라이트 결과</li>
-          </ul>
+        <div className="card" style={{ padding: 18, marginTop: 24 }}>
+          <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginBottom: 12 }}>방 만들면 생기는 것들</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {['6자리 참여 코드 + QR코드 자동 생성', '1시간마다 인터랙션 알림', '익명 하트 · 자제 시그널 · 별점 전송', '종료 시 오늘의 하이라이트 결과'].map(t => (
+              <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text2)' }}>
+                <span style={{ color: 'var(--accent)', fontSize: 16 }}>✓</span>{t}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      <button
-        onClick={handleCreate}
-        disabled={loading || !roomName.trim()}
-        className="btn-touch w-full glow-purple"
-        style={{
-          background: loading || !roomName.trim()
-            ? 'rgba(124, 58, 237, 0.3)'
-            : 'linear-gradient(135deg, #7c3aed, #6d28d9)',
-          color: '#fff',
-          fontSize: '18px',
-          opacity: loading ? 0.7 : 1,
-        }}
-      >
+      <button className="btn btn-primary" onClick={handleCreate} disabled={loading || !roomName.trim()}
+        style={{ opacity: loading || !roomName.trim() ? 0.5 : 1, fontSize: 17, marginTop: 24 }}>
         {loading ? '생성 중...' : '🎉 방 만들기'}
       </button>
     </main>

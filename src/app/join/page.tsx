@@ -15,16 +15,13 @@ function JoinContent() {
   const [roomName, setRoomName] = useState('')
 
   useEffect(() => {
-    if (code.length === 6 && step === 'code') {
-      verifyCode()
-    }
+    if (code.length === 6 && step === 'code') verifyCode()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code])
 
   const verifyCode = async () => {
     if (code.length !== 6) return
-    setLoading(true)
-    setError('')
+    setLoading(true); setError('')
     try {
       const res = await fetch(`/api/rooms/${code}`)
       const data = await res.json()
@@ -33,18 +30,12 @@ function JoinContent() {
       setStep('nickname')
     } catch (e) {
       setError(e instanceof Error ? e.message : '코드를 확인해주세요')
-    } finally {
-      setLoading(false)
-    }
+    } finally { setLoading(false) }
   }
 
   const handleJoin = async () => {
-    if (!nickname.trim()) {
-      setError('닉네임을 입력해주세요')
-      return
-    }
-    setLoading(true)
-    setError('')
+    if (!nickname.trim()) { setError('닉네임을 입력해주세요'); return }
+    setLoading(true); setError('')
     try {
       const session_token = getSessionToken()
       const res = await fetch(`/api/rooms/${code}/join`, {
@@ -54,16 +45,10 @@ function JoinContent() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
-
       storeRoomData({
-        roomId: data.room.id,
-        roomCode: data.room.code,
-        roomName: data.room.name,
-        participantId: data.participant.id,
-        nickname: nickname.trim(),
-        isHost: false,
+        roomId: data.room.id, roomCode: data.room.code, roomName: data.room.name,
+        participantId: data.participant.id, nickname: nickname.trim(), isHost: false,
       })
-
       router.push(`/room/${data.room.code}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : '오류가 발생했습니다')
@@ -72,92 +57,49 @@ function JoinContent() {
   }
 
   return (
-    <main className="flex flex-col min-h-dvh px-6 py-10">
-      <button
-        onClick={() => step === 'nickname' && !searchParams.get('code') ? setStep('code') : router.back()}
-        className="mb-8 w-10 h-10 flex items-center justify-center rounded-full"
-        style={{ background: 'rgba(255,255,255,0.06)' }}
-      >
+    <main className="flex flex-col min-h-dvh px-6" style={{ paddingTop: 56, paddingBottom: 32 }}>
+      <button onClick={() => step === 'nickname' && !searchParams.get('code') ? setStep('code') : router.back()}
+        style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--card2)', border: '1px solid var(--border)', color: 'var(--text2)', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', marginBottom: 32 }}>
         ←
       </button>
 
       {step === 'code' ? (
         <div className="animate-fade-in">
-          <h1 className="text-3xl font-bold mb-2">방 참여하기</h1>
-          <p className="text-sm mb-8" style={{ color: '#6b7280' }}>
-            호스트에게 받은 6자리 코드를 입력하세요
-          </p>
-
-          <input
-            type="text"
-            value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))}
-            placeholder="ABCD12"
-            maxLength={6}
-            className="w-full px-4 py-5 rounded-2xl text-center text-3xl font-bold tracking-[0.3em] outline-none"
-            style={{
-              background: 'rgba(255,255,255,0.06)',
-              border: '1.5px solid rgba(124, 58, 237, 0.3)',
-              color: '#a78bfa',
-              letterSpacing: '0.3em',
-            }}
-            autoFocus
-          />
-          {error && <p className="mt-3 text-sm text-center" style={{ color: '#ef4444' }}>{error}</p>}
-
-          <button
-            onClick={verifyCode}
-            disabled={code.length !== 6 || loading}
-            className="btn-touch w-full mt-6 glow-purple"
-            style={{
-              background: code.length === 6 ? 'linear-gradient(135deg, #7c3aed, #6d28d9)' : 'rgba(124,58,237,0.2)',
-              color: '#fff',
-              fontSize: '18px',
-            }}
-          >
-            {loading ? '확인 중...' : '코드 확인'}
+          <p style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 700, marginBottom: 6, letterSpacing: '0.05em' }}>JOIN ROOM</p>
+          <h1 style={{ fontSize: 30, fontWeight: 800, marginBottom: 8 }}>방 참여하기</h1>
+          <p style={{ color: 'var(--muted2)', fontSize: 14, marginBottom: 32 }}>호스트에게 받은 6자리 코드 입력</p>
+          <input type="text" value={code}
+            onChange={e => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))}
+            placeholder="ABCD12" maxLength={6}
+            style={{ width: '100%', padding: '20px', borderRadius: 16, textAlign: 'center', fontSize: 32, fontWeight: 800, letterSpacing: '0.3em', background: 'var(--card)', border: '1.5px solid rgba(255,107,107,0.3)', color: 'var(--accent)', outline: 'none' }}
+            autoFocus />
+          {error && <p style={{ marginTop: 10, fontSize: 13, color: '#ff6b6b', textAlign: 'center' }}>{error}</p>}
+          <button className="btn btn-primary" onClick={verifyCode} disabled={code.length !== 6 || loading}
+            style={{ marginTop: 20, opacity: code.length !== 6 ? 0.4 : 1, fontSize: 17 }}>
+            {loading ? '확인 중...' : '코드 확인 →'}
           </button>
         </div>
       ) : (
         <div className="animate-fade-in">
-          <div className="glass-card p-4 mb-8">
-            <p className="text-xs" style={{ color: '#6b7280' }}>참여할 방</p>
-            <p className="text-lg font-bold" style={{ color: '#a78bfa' }}>{roomName || code}</p>
+          <div className="card-sm" style={{ padding: '14px 16px', marginBottom: 32, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,107,107,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🍻</div>
+            <div>
+              <p style={{ fontSize: 11, color: 'var(--muted2)', marginBottom: 2 }}>참여할 방</p>
+              <p style={{ fontSize: 16, fontWeight: 700 }}>{roomName || code}</p>
+            </div>
           </div>
-
-          <h2 className="text-2xl font-bold mb-2">닉네임 설정</h2>
-          <p className="text-sm mb-6" style={{ color: '#6b7280' }}>
-            본인만 볼 수 있어요. 다른 사람에게는 <span style={{ color: '#a78bfa' }}>"누군가"</span>로 표시됩니다
+          <p style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 700, marginBottom: 6, letterSpacing: '0.05em' }}>NICKNAME</p>
+          <h2 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8 }}>닉네임 설정</h2>
+          <p style={{ color: 'var(--muted2)', fontSize: 14, marginBottom: 28 }}>
+            나만 볼 수 있어요. 다른 사람에겐 <span style={{ color: 'var(--accent)' }}>"누군가"</span>로 표시돼요
           </p>
-
-          <input
-            type="text"
-            value={nickname}
-            onChange={(e) => setNickname(e.target.value.slice(0, 10))}
-            onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
-            placeholder="나만 아는 이름"
-            maxLength={10}
-            className="w-full px-4 py-4 rounded-2xl text-base outline-none"
-            style={{
-              background: 'rgba(255,255,255,0.06)',
-              border: '1.5px solid rgba(124, 58, 237, 0.3)',
-              color: '#f0f0f5',
-              fontSize: '16px',
-            }}
-            autoFocus
-          />
-          {error && <p className="mt-2 text-sm" style={{ color: '#ef4444' }}>{error}</p>}
-
-          <button
-            onClick={handleJoin}
-            disabled={loading || !nickname.trim()}
-            className="btn-touch w-full mt-6 glow-purple"
-            style={{
-              background: nickname.trim() ? 'linear-gradient(135deg, #7c3aed, #6d28d9)' : 'rgba(124,58,237,0.2)',
-              color: '#fff',
-              fontSize: '18px',
-            }}
-          >
+          <input className="input" type="text" value={nickname}
+            onChange={e => setNickname(e.target.value.slice(0, 10))}
+            onKeyDown={e => e.key === 'Enter' && handleJoin()}
+            placeholder="나만 아는 이름" maxLength={10} autoFocus />
+          {error && <p style={{ marginTop: 8, fontSize: 13, color: '#ff6b6b' }}>{error}</p>}
+          <button className="btn btn-primary" onClick={handleJoin} disabled={loading || !nickname.trim()}
+            style={{ marginTop: 20, opacity: !nickname.trim() ? 0.4 : 1, fontSize: 17 }}>
             {loading ? '입장 중...' : '🚀 입장하기'}
           </button>
         </div>
@@ -167,9 +109,5 @@ function JoinContent() {
 }
 
 export default function JoinPage() {
-  return (
-    <Suspense>
-      <JoinContent />
-    </Suspense>
-  )
+  return <Suspense><JoinContent /></Suspense>
 }

@@ -2,37 +2,20 @@
 
 import { QRCodeSVG } from 'qrcode.react'
 
-interface Props {
-  url: string
-  code: string
-  roomName: string
-}
+interface Props { url: string; code: string; roomName: string }
 
 export default function QRCodeDisplay({ url, code, roomName }: Props) {
-  const handleCopy = () => {
-    navigator.clipboard.writeText(url)
-  }
+  const handleCopy = () => navigator.clipboard.writeText(url)
 
   return (
-    <div className="flex flex-col items-center">
-      <p className="text-lg font-bold mb-1">{roomName}</p>
-      <p className="text-sm mb-5" style={{ color: '#6b7280' }}>QR코드로 스캔하거나 코드를 공유하세요</p>
-
-      <div className="p-4 rounded-2xl mb-4" style={{ background: '#fff' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <p style={{ fontSize: 18, fontWeight: 800, marginBottom: 4 }}>{roomName}</p>
+      <p style={{ fontSize: 13, color: 'var(--muted2)', marginBottom: 20 }}>QR 스캔 또는 코드로 참여</p>
+      <div style={{ padding: 16, borderRadius: 20, background: '#fff', marginBottom: 16, boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}>
         <QRCodeSVG value={url} size={180} />
       </div>
-
-      <div className="text-3xl font-bold tracking-[0.3em] mb-4" style={{ color: '#a78bfa' }}>
-        {code}
-      </div>
-
-      <button
-        onClick={handleCopy}
-        className="btn-touch w-full"
-        style={{ background: 'rgba(124,58,237,0.15)', border: '1px solid rgba(124,58,237,0.3)', color: '#a78bfa', fontSize: '15px' }}
-      >
-        🔗 링크 복사하기
-      </button>
+      <div style={{ fontSize: 36, fontWeight: 900, letterSpacing: '0.25em', color: 'var(--accent)', marginBottom: 16 }}>{code}</div>
+      <button className="btn btn-secondary" onClick={handleCopy} style={{ fontSize: 15 }}>🔗 링크 복사하기</button>
     </div>
   )
 }

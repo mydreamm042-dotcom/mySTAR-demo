@@ -8,28 +8,16 @@ interface Props {
 
 export default function NotificationBanner({ round, onOpen, onDismiss }: Props) {
   return (
-    <div className="fixed top-4 left-4 right-4 z-40 animate-slide-up max-w-md mx-auto">
-      <div className="glass-card px-4 py-3 flex items-center gap-3 glow-purple">
-        <span className="text-2xl">✨</span>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-bold">Round {round} 시작!</p>
-          <p className="text-xs truncate" style={{ color: '#9ca3af' }}>지금 마음을 표현해볼까요?</p>
+    <div className="animate-slide-up" style={{ position: 'fixed', top: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 448, padding: '52px 16px 16px', zIndex: 40, pointerEvents: 'none' }}>
+      <div style={{ background: 'linear-gradient(135deg, rgba(255,107,107,0.98), rgba(238,68,68,0.98))', borderRadius: 20, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 12px 40px rgba(255,107,107,0.5)', backdropFilter: 'blur(12px)', pointerEvents: 'auto' }}>
+        <div style={{ fontSize: 30 }}>🔔</div>
+        <div style={{ flex: 1 }}>
+          <p style={{ fontSize: 14, fontWeight: 800, color: '#fff', marginBottom: 1 }}>Round {round} 시작!</p>
+          <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)' }}>지금 마음을 표현해보세요</p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={onOpen}
-            className="px-3 py-1.5 rounded-xl text-xs font-bold"
-            style={{ background: 'rgba(124,58,237,0.8)', color: '#fff' }}
-          >
-            표현하기
-          </button>
-          <button
-            onClick={onDismiss}
-            className="w-7 h-7 flex items-center justify-center rounded-lg text-xs"
-            style={{ color: '#6b7280', background: 'rgba(255,255,255,0.06)' }}
-          >
-            ✕
-          </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onOpen} style={{ padding: '8px 14px', borderRadius: 10, background: '#fff', color: '#ff6b6b', fontSize: 13, fontWeight: 800, cursor: 'pointer', border: 'none' }}>표현하기</button>
+          <button onClick={onDismiss} style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(255,255,255,0.2)', color: '#fff', fontSize: 16, cursor: 'pointer', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
         </div>
       </div>
     </div>

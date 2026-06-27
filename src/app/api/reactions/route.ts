@@ -20,17 +20,21 @@ export async function POST(req: NextRequest) {
 
   const supabase = await createServerSupabaseClient()
 
-  const { data: selfCheck } = await supabase
-    .from('participants')
-    .select('id')
-    .eq('id', receiver_id)
-    .eq('session_token', sender_session)
-    .single()
+  // 자기 자신에게 보내기 방지 (별점은 전체 대상이므로 제외)
+  if (type !== 'star') {
+    const { data: selfCheck } = await supabase
+      .from('participants')
+      .select('id')
+      .eq('id', receiver_id)
+      .eq('session_token', sender_session)
+      .single()
 
-  if (selfCheck) {
-    return NextResponse.json({ error: '자기 자신에게는 보낼 수 없습니다' }, { status: 400 })
+    if (selfCheck) {
+      return NextResponse.json({ error: '자기 자신에게는 보낼 수 없습니다' }, { status: 400 })
+    }
   }
 
+  // 하트: 라운드당 1회 제한
   if (type === 'heart') {
     const { data: existing } = await supabase
       .from('reactions')
