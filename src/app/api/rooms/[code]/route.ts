@@ -43,9 +43,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ co
     return NextResponse.json({ error: '호스트만 방을 종료할 수 있습니다' }, { status: 403 })
   }
 
+  const updatePayload: Record<string, unknown> = { status }
+  if (status === 'ended') {
+    updatePayload.ended_at = new Date().toISOString()
+  }
+
   const { data: updated, error } = await supabase
     .from('rooms')
-    .update({ status })
+    .update(updatePayload)
     .eq('id', room.id)
     .select()
     .single()

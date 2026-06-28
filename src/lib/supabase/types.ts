@@ -8,6 +8,7 @@ export interface Room {
   host_session: string
   status: RoomStatus
   created_at: string
+  ended_at?: string | null
 }
 
 export interface Participant {
@@ -21,7 +22,6 @@ export interface Participant {
 export interface Reaction {
   id: string
   room_id: string
-  // sender_session은 절대 클라이언트에 포함하지 않음
   receiver_id: string
   type: ReactionType
   value: number | null
@@ -44,12 +44,10 @@ export interface NotificationRound {
   triggered_at: string
 }
 
-// 클라이언트에서 사용하는 안전한 참여자 정보 (닉네임 제외)
 export interface SafeParticipant {
   id: string
   room_id: string
   joined_at: string
-  // nickname은 본인 것만 알 수 있음
 }
 
 export interface RoomSummary {

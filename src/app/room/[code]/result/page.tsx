@@ -3,13 +3,24 @@
 import { use, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getRoomData, getSessionToken, clearRoomData } from '@/lib/session'
-import { Participant, Reaction, NotificationRound } from '@/lib/supabase/types'
+import { Room, Participant, Reaction, NotificationRound } from '@/lib/supabase/types'
 
 interface ResultData {
+  room: Room
   participants: Participant[]
   reactions: Reaction[]
   rounds: NotificationRound[]
   endVoteCounts: Record<string, number>
+}
+
+function fmt(d: Date) {
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+}
+
+function fmtDuration(ms: number) {
+  const min = Math.floor(ms / 60000)
+  const h = Math.floor(min / 60)
+  return h > 0 ? `${h}시간 ${min % 60}분` : `${min}분`
 }
 
 export default function ResultPage({ params }: { params: Promise<{ code: string }> }) {
@@ -38,6 +49,7 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
     const nData = await nRes.json()
     const evData = await evRes.json()
     setData({
+      room: rData.room,
       participants: rData.participants ?? [],
       reactions: rxData.reactions ?? [],
       rounds: nData.rounds ?? [],
@@ -70,6 +82,7 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
     )
   }
 
+  // 기본 집계
   const heartCounts: Record<string, number> = {}
   data.reactions.filter(r => r.type === 'heart').forEach(r => {
     heartCounts[r.receiver_id] = (heartCounts[r.receiver_id] ?? 0) + 1
@@ -96,12 +109,56 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
   const starReactions = data.reactions.filter(r => r.type === 'star' && r.value)
   const avgMood = starReactions.length > 0 ? starReactions.reduce((a, r) => a + (r.value ?? 0), 0) / starReactions.length : null
 
+  // 타임라인 계산
+  const roomStart = new Date(data.room.created_at)
+  const roomEnd = data.room.ended_at ? new Date(data.room.ended_at) : null
+  const durationMs = roomEnd ? roomEnd.getTime() - roomStart.getTime() : null
+
+  const timelineEvents = [
+    { time: roomStart, label: '모임 시작', icon: '🎉', color: '#ff6b6b' },
+    ...data.participants
+      .slice()
+      .sort((a, b) => new Date(a.joined_at).getTime() - new Date(b.joined_at).getTime())
+      .map(p => ({
+        time: new Date(p.joined_at),
+        label: `${p.id === roomData.participantId ? p.nickname + ' (나)' : p.nickname} 입장`,
+        icon: '👤',
+        color: 'var(--purple-light)',
+      })),
+    ...(roomEnd ? [{ time: roomEnd, label: `모임 종료${durationMs ? ' · ' + fmtDuration(durationMs) : ''}`, icon: '🏁', color: 'var(--muted2)' }] : []),
+  ].sort((a, b) => a.time.getTime() - b.time.getTime())
+
+  // HOT 지수 5분 버킷
+  const BUCKET_MS = 5 * 60 * 1000
+  const hotReactions = data.reactions.filter(r => r.type === 'hot').slice().sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+  const bucketEnd = roomEnd ?? (hotReactions.length > 0 ? new Date(hotReactions[hotReactions.length - 1].created_at) : null)
+  const hotBuckets: { label: string; count: number }[] = []
+  if (bucketEnd && hotReactions.length > 0) {
+    const totalBuckets = Math.max(1, Math.ceil((bucketEnd.getTime() - roomStart.getTime()) / BUCKET_MS))
+    for (let i = 0; i < totalBuckets; i++) {
+      const bStart = roomStart.getTime() + i * BUCKET_MS
+      const bEnd = bStart + BUCKET_MS
+      const count = hotReactions.filter(r => {
+        const t = new Date(r.created_at).getTime()
+        return t >= bStart && t < bEnd
+      }).length
+      hotBuckets.push({ label: fmt(new Date(bStart)), count })
+    }
+  }
+  const maxHot = Math.max(1, ...hotBuckets.map(b => b.count))
+
   return (
     <main style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh', paddingBottom: 40 }}>
       <div style={{ padding: '52px 20px 24px', textAlign: 'center', background: 'linear-gradient(180deg, rgba(255,107,107,0.08) 0%, transparent 100%)' }} className="animate-fade-in">
         <div style={{ fontSize: 56, marginBottom: 12 }}>🎉</div>
         <h1 style={{ fontSize: 26, fontWeight: 800, marginBottom: 6 }}>{roomData.roomName}</h1>
         <p style={{ fontSize: 14, color: 'var(--muted2)' }}>오늘 모임 결과</p>
+        {durationMs !== null && (
+          <div style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 20, padding: '6px 14px' }}>
+            <span style={{ fontSize: 14 }}>⏱️</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text2)' }}>{fmtDuration(durationMs)}</span>
+          </div>
+        )}
       </div>
 
       <div style={{ padding: '0 20px', marginBottom: 20 }} className="animate-fade-in">
@@ -121,6 +178,67 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
       </div>
 
       <div style={{ padding: '0 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+        {/* 모임 타임라인 */}
+        <div className="card" style={{ padding: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
+            <span style={{ fontSize: 20 }}>🕐</span>
+            <h2 style={{ fontSize: 15, fontWeight: 800, color: 'var(--text)' }}>모임 타임라인</h2>
+          </div>
+          <div style={{ position: 'relative', paddingLeft: 16 }}>
+            {/* 세로선 */}
+            <div style={{ position: 'absolute', left: 16, top: 8, bottom: 8, width: 1.5, background: 'rgba(255,255,255,0.07)' }} />
+            {timelineEvents.map((ev, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: i < timelineEvents.length - 1 ? 16 : 0, position: 'relative' }}>
+                {/* 도트 */}
+                <div style={{
+                  width: 28, height: 28, borderRadius: '50%',
+                  background: 'var(--card2)', border: `1.5px solid ${ev.color}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 13, flexShrink: 0, position: 'relative', zIndex: 1,
+                }}>{ev.icon}</div>
+                <div style={{ paddingTop: 4 }}>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginRight: 8 }}>{fmt(ev.time)}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: ev.color }}>{ev.label}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* HOT 지수 그래프 */}
+        {hotBuckets.length > 0 && (
+          <div className="card" style={{ padding: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
+              <span style={{ fontSize: 20 }}>🔥</span>
+              <h2 style={{ fontSize: 15, fontWeight: 800, color: '#f97316' }}>시간별 HOT 지수</h2>
+              <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>5분 단위</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 80, overflowX: 'auto', paddingBottom: 24, position: 'relative' }}>
+              {hotBuckets.map((b, i) => (
+                <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flexShrink: 0, minWidth: 32 }}>
+                  <div style={{
+                    width: '100%',
+                    height: Math.max(4, Math.round((b.count / maxHot) * 72)),
+                    borderRadius: '4px 4px 0 0',
+                    background: b.count === maxHot && maxHot > 0
+                      ? 'linear-gradient(180deg, #f97316, #ef4444)'
+                      : 'rgba(249,115,22,0.35)',
+                    transition: 'height 0.3s',
+                    position: 'relative',
+                  }}>
+                    {b.count > 0 && (
+                      <span style={{ position: 'absolute', top: -18, left: '50%', transform: 'translateX(-50%)', fontSize: 10, fontWeight: 700, color: '#f97316', whiteSpace: 'nowrap' }}>{b.count}</span>
+                    )}
+                  </div>
+                  <span style={{ fontSize: 9, color: 'var(--muted)', position: 'absolute', bottom: 0, transform: 'none', whiteSpace: 'nowrap' }}>{b.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 하트 Top 3 */}
         <div className="card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <span style={{ fontSize: 20 }}>💖</span>
@@ -142,6 +260,7 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
           ))}
         </div>
 
+        {/* 분위기 타임라인 */}
         <div className="card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <span style={{ fontSize: 20 }}>⭐</span>
@@ -164,6 +283,7 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
           ))}
         </div>
 
+        {/* 다음에 또 보고 싶은 사람 */}
         <div className="card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <span style={{ fontSize: 20 }}>🙋</span>
