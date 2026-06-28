@@ -1,5 +1,6 @@
 const SESSION_KEY = 'mystar_session_token'
 const ROOM_KEY = 'mystar_room_data'
+const COOLDOWN_PREFIX = 'mystar_cd_'
 
 export function getSessionToken(): string {
   if (typeof window === 'undefined') return ''
@@ -48,4 +49,16 @@ export function generateRoomCode(): string {
     code += chars[Math.floor(Math.random() * chars.length)]
   }
   return code
+}
+
+export function getCooldownRemaining(roomId: string, type: string): number {
+  if (typeof window === 'undefined') return 0
+  const raw = localStorage.getItem(`${COOLDOWN_PREFIX}${roomId}_${type}`)
+  if (!raw) return 0
+  return Math.max(0, parseInt(raw) - Date.now())
+}
+
+export function setCooldown(roomId: string, type: string, durationMs: number) {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(`${COOLDOWN_PREFIX}${roomId}_${type}`, String(Date.now() + durationMs))
 }

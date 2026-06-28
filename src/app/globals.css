@@ -59,10 +59,21 @@ body {
   100% { transform: translateY(-100px) scale(1.4); opacity: 0; }
 }
 
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(255,107,107,0.3); }
+  50% { box-shadow: 0 0 40px rgba(255,107,107,0.6); }
+}
+
+@keyframes fire-pulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(249,115,22,0.25), inset 0 0 0 1px rgba(249,115,22,0.2); }
+  50% { box-shadow: 0 0 32px rgba(249,115,22,0.5), inset 0 0 0 1px rgba(249,115,22,0.4); }
+}
+
 .animate-slide-up { animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 .animate-fade-in { animation: fade-in 0.35s ease-out forwards; }
 .animate-bounce-in { animation: bounce-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
 .animate-float-up { animation: float-up 1s ease-out forwards; }
+.fire-pulse { animation: fire-pulse 1.2s ease-in-out infinite; }
 
 .card {
   background: var(--card);
