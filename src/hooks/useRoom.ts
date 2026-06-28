@@ -10,12 +10,12 @@ export interface RoomState {
   reactions: Reaction[]
   currentRound: number
   rounds: NotificationRound[]
-  warningCounts: Record<string, number>
-  moodAverages: Record<number, number>
+  warningCounts: Record<string, number>  // receiver_id → count
+  moodAverages: Record<number, number>   // round → average
   notification: { type: 'round'; round: number } | null
 }
 
-export function useRoom(roomId: string, roomCode: string) {
+export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => void) {
   const [state, setState] = useState<RoomState>({
     participants: [],
     reactions: [],
@@ -28,6 +28,8 @@ export function useRoom(roomId: string, roomCode: string) {
   const supabase = createClient()
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const roomData = getRoomData()
+  const onRoomEndedRef = useRef(onRoomEnded)
+  useEffect(() => { onRoomEndedRef.current = onRoomEnded }, [onRoomEnded])
 
   const fetchInitial = useCallback(async () => {
     const [pRes, rRes, nRes] = await Promise.all([
@@ -44,11 +46,13 @@ export function useRoom(roomId: string, roomCode: string) {
     const rounds: NotificationRound[] = nData.rounds ?? []
     const currentRound = rounds.length > 0 ? Math.max(...rounds.map((r) => r.round_number)) : 1
 
+    // 자제 시그널 집계
     const warningCounts: Record<string, number> = {}
     reactions.filter(r => r.type === 'warning').forEach(r => {
       warningCounts[r.receiver_id] = (warningCounts[r.receiver_id] ?? 0) + 1
     })
 
+    // 분위기 평균 집계
     const moodAverages: Record<number, number> = {}
     const starsByRound: Record<number, number[]> = {}
     reactions.filter(r => r.type === 'star').forEach(r => {
@@ -70,26 +74,30 @@ export function useRoom(roomId: string, roomCode: string) {
     }))
   }, [roomId, roomCode])
 
+  // 1시간 타이머
   const startRoundTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current)
     timerRef.current = setInterval(async () => {
       setState(prev => {
         const nextRound = prev.currentRound + 1
+        // 새 라운드 저장
         fetch('/api/notification-rounds', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ room_id: roomId, round_number: nextRound }),
         })
+        // 진동
         if ('vibrate' in navigator) navigator.vibrate([200, 100, 200])
         return { ...prev, currentRound: nextRound, notification: { type: 'round', round: nextRound } }
       })
-    }, 60 * 60 * 1000)
+    }, 60 * 60 * 1000) // 1시간
   }, [roomId])
 
   useEffect(() => {
     fetchInitial()
     startRoundTimer()
 
+    // Realtime 구독
     const channel = supabase
       .channel(`room:${roomId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'participants', filter: `room_id=eq.${roomId}` },
@@ -100,6 +108,7 @@ export function useRoom(roomId: string, roomCode: string) {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `room_id=eq.${roomId}` },
         (payload) => {
           const r = payload.new as Reaction & { sender_session: string }
+          // sender_session 제거하고 상태 업데이트
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { sender_session: _s, ...safeReaction } = r
           setState(prev => {
@@ -117,6 +126,7 @@ export function useRoom(roomId: string, roomCode: string) {
             return { ...prev, reactions, warningCounts, moodAverages }
           })
 
+          // 수신자에게 알림
           const mySession = getSessionToken()
           const myParticipantId = roomData?.participantId
           if (safeReaction.receiver_id === myParticipantId) {
@@ -132,6 +142,13 @@ export function useRoom(roomId: string, roomCode: string) {
             }
           }
           void mySession
+        }
+      )
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },
+        (payload) => {
+          if ((payload.new as { status: string }).status === 'ended') {
+            onRoomEndedRef.current?.()
+          }
         }
       )
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notification_rounds', filter: `room_id=eq.${roomId}` },

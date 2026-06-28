@@ -22,7 +22,11 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     if (!roomData || roomData.roomCode !== code) router.replace(`/join?code=${code}`)
   }, [code, roomData, router])
 
-  const { state, sendReaction, dismissNotification } = useRoom(roomData?.roomId ?? '', code)
+  const { state, sendReaction, dismissNotification } = useRoom(
+    roomData?.roomId ?? '',
+    code,
+    () => router.push(`/room/${code}/result`),
+  )
 
   useEffect(() => {
     if (state.reactions.length > prevReactionCount && prevReactionCount > 0) {
@@ -62,18 +66,28 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   return (
     <main className="flex flex-col min-h-dvh" style={{ paddingBottom: 100 }}>
-      <div style={{ padding: '52px 20px 16px', background: 'linear-gradient(180deg, rgba(255,107,107,0.06) 0%, transparent 100%)' }}>
+      {/* 상단 헤더 */}
+      <div style={{
+        padding: '52px 20px 16px',
+        background: 'linear-gradient(180deg, rgba(255,107,107,0.06) 0%, transparent 100%)',
+      }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <span className="badge" style={{ background: 'rgba(255,107,107,0.15)', color: 'var(--accent)', border: '1px solid rgba(255,107,107,0.25)' }}>🔴 LIVE</span>
-              <span className="badge" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--muted2)' }}>ROUND {state.currentRound}</span>
+              <span className="badge" style={{ background: 'rgba(255,107,107,0.15)', color: 'var(--accent)', border: '1px solid rgba(255,107,107,0.25)' }}>
+                🔴 LIVE
+              </span>
+              <span className="badge" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--muted2)' }}>
+                ROUND {state.currentRound}
+              </span>
             </div>
             <h1 style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.2 }}>{roomData.roomName}</h1>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => setShowQR(true)}
-              style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--card)', border: '1px solid var(--border)', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>📱</button>
+              style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--card)', border: '1px solid var(--border)', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+              📱
+            </button>
             {roomData.isHost && (
               <button onClick={handleEndRoom} disabled={endingRoom}
                 style={{ height: 40, padding: '0 14px', borderRadius: 12, background: 'rgba(255,107,107,0.12)', border: '1px solid rgba(255,107,107,0.3)', color: 'var(--accent)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
@@ -82,12 +96,17 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             )}
           </div>
         </div>
+
+        {/* 참여 코드 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
           <span style={{ fontSize: 12, color: 'var(--muted)' }}>참여 코드</span>
-          <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: '0.2em', color: 'var(--accent)', background: 'rgba(255,107,107,0.1)', padding: '3px 10px', borderRadius: 8 }}>{code}</span>
+          <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: '0.2em', color: 'var(--accent)', background: 'rgba(255,107,107,0.1)', padding: '3px 10px', borderRadius: 8 }}>
+            {code}
+          </span>
         </div>
       </div>
 
+      {/* 스탯 카드 */}
       <div style={{ padding: '0 20px', marginBottom: 20 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
           <div className="card" style={{ padding: '14px 12px', textAlign: 'center' }}>
@@ -102,26 +121,41 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           </div>
           <div className="card" style={{ padding: '14px 12px', textAlign: 'center' }}>
             <div style={{ fontSize: 22, marginBottom: 4 }}>⭐</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#fbbf24' }}>{currentMood !== undefined ? currentMood.toFixed(1) : '-'}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#fbbf24' }}>
+              {currentMood !== undefined ? currentMood.toFixed(1) : '-'}
+            </div>
             <div style={{ fontSize: 11, color: 'var(--muted2)' }}>분위기</div>
           </div>
         </div>
       </div>
 
+      {/* 참여자 목록 */}
       <div style={{ padding: '0 20px', flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted2)' }}>참여자 목록</p>
           <p style={{ fontSize: 12, color: 'var(--muted)' }}>총 {totalReactions}개 리액션</p>
         </div>
+
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {state.participants.map((p, idx) => {
             const isMe = p.id === roomData.participantId
             const heartCount = state.reactions.filter(r => r.receiver_id === p.id && r.type === 'heart').length
             const warnCount = state.warningCounts[p.id] ?? 0
             const isHost = idx === 0
+
             return (
-              <div key={p.id} className="card" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, borderColor: isMe ? 'rgba(255,107,107,0.25)' : undefined, background: isMe ? 'rgba(255,107,107,0.05)' : undefined }}>
-                <div style={{ width: 44, height: 44, borderRadius: 14, background: isMe ? 'rgba(255,107,107,0.2)' : 'var(--card2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
+              <div key={p.id} className="card" style={{
+                padding: '14px 16px',
+                display: 'flex', alignItems: 'center', gap: 12,
+                borderColor: isMe ? 'rgba(255,107,107,0.25)' : undefined,
+                background: isMe ? 'rgba(255,107,107,0.05)' : undefined,
+              }}>
+                <div style={{
+                  width: 44, height: 44, borderRadius: 14,
+                  background: isMe ? 'rgba(255,107,107,0.2)' : 'var(--card2)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 20, flexShrink: 0,
+                }}>
                   {isMe ? (roomData.nickname[0] ?? '나') : '👤'}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -129,38 +163,58 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                     <p style={{ fontSize: 15, fontWeight: 700, color: isMe ? 'var(--accent)' : 'var(--text)' }}>
                       {isMe ? `${roomData.nickname} (나)` : '누군가'}
                     </p>
-                    {isHost && <span className="badge" style={{ background: 'rgba(124,92,191,0.2)', color: 'var(--purple-light)', fontSize: 10 }}>HOST</span>}
+                    {isHost && (
+                      <span className="badge" style={{ background: 'rgba(124,92,191,0.2)', color: 'var(--purple-light)', fontSize: 10 }}>HOST</span>
+                    )}
                   </div>
-                  {isMe && warnCount >= 3 && <p style={{ fontSize: 11, color: '#f59e0b', marginTop: 2 }}>⚠️ 자제 시그널 {warnCount}개</p>}
+                  {isMe && warnCount >= 3 && (
+                    <p style={{ fontSize: 11, color: '#f59e0b', marginTop: 2 }}>⚠️ 자제 시그널 {warnCount}개</p>
+                  )}
                 </div>
-                {heartCount > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 3, background: 'rgba(255,107,107,0.12)', padding: '4px 10px', borderRadius: 20 }}>
-                    <span style={{ fontSize: 14 }}>💖</span>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: '#ff6b6b' }}>{heartCount}</span>
-                  </div>
-                )}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  {heartCount > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 3, background: 'rgba(255,107,107,0.12)', padding: '4px 10px', borderRadius: 20 }}>
+                      <span style={{ fontSize: 14 }}>💖</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: '#ff6b6b' }}>{heartCount}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             )
           })}
         </div>
       </div>
 
-      <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 448, padding: '16px 20px 32px', background: 'linear-gradient(0deg, var(--bg) 60%, transparent)' }}>
+      {/* 하단 고정 버튼 */}
+      <div style={{
+        position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)',
+        width: '100%', maxWidth: 448,
+        padding: '16px 20px 32px',
+        background: 'linear-gradient(0deg, var(--bg) 60%, transparent)',
+      }}>
         <button className="btn btn-primary" onClick={() => setShowModal(true)}
           style={{ fontSize: 18, minHeight: 60, boxShadow: '0 12px 32px rgba(255,107,107,0.5)' }}>
           ✨ 지금 표현하기
         </button>
       </div>
 
+      {/* 알림 배너 */}
       {state.notification && (
-        <NotificationBanner round={state.notification.round}
+        <NotificationBanner
+          round={state.notification.round}
           onOpen={() => { dismissNotification(); setShowModal(true) }}
-          onDismiss={dismissNotification} />
+          onDismiss={dismissNotification}
+        />
       )}
 
       {showModal && (
-        <InteractionModal participants={state.participants} myParticipantId={roomData.participantId}
-          round={state.currentRound} onSend={sendReaction} onClose={() => setShowModal(false)} />
+        <InteractionModal
+          participants={state.participants}
+          myParticipantId={roomData.participantId}
+          round={state.currentRound}
+          onSend={sendReaction}
+          onClose={() => setShowModal(false)}
+        />
       )}
 
       {showQR && (
