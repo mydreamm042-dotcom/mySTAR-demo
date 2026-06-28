@@ -33,6 +33,9 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
 
   useEffect(() => {
     if (!roomData) { router.replace('/'); return }
+    // 이전 투표 복원
+    const savedVote = localStorage.getItem(`mystar_vote_${roomData.roomId}`)
+    if (savedVote) setVoted(savedVote)
     fetchResult()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -65,7 +68,11 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ room_id: roomData.roomId, voter_session: getSessionToken(), voted_for_id: participantId }),
     })
-    if (res.ok) { setVoted(participantId); fetchResult() }
+    if (res.ok) {
+      setVoted(participantId)
+      localStorage.setItem(`mystar_vote_${roomData.roomId}`, participantId)
+      fetchResult()
+    }
     setVotingSending(false)
   }
 
@@ -92,7 +99,7 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
     .map(([id, count]) => ({ participant: data.participants.find(p => p.id === id), count }))
     .filter(x => x.participant)
 
-  // 분위기 타임라인 — notification_rounds 대신 star 반응에서 직접 집계
+  // 분위기 타임라인 — star 반응에서 직접 집계
   const uniqueRounds = [...new Set(
     data.reactions.filter(r => r.type === 'star').map(r => r.round)
   )].sort((a, b) => a - b)

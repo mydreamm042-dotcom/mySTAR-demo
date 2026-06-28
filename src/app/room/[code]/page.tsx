@@ -24,13 +24,14 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [prevReactionCount, setPrevReactionCount] = useState(0)
   const [hotFloaters, setHotFloaters] = useState<string[]>([])
   const [hotPressed, setHotPressed] = useState(false)
+  const [localHotCount, setLocalHotCount] = useState(0)
   const hotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // 자제 카운트다운 (1개만 받아도 시작)
   const [warningCountdown, setWarningCountdown] = useState<number | null>(null)
   const warningStartedRef = useRef(false)
 
-  // 쓌방 호감 배너
+  // 쌍방 호감 배너
   const [mutualBanner, setMutualBanner] = useState(false)
 
   useEffect(() => {
@@ -42,6 +43,22 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     code,
     () => router.push(`/room/${code}/result`),
   )
+
+  // 쌍방 호감 확인
+  const checkMutual = useCallback(async () => {
+    if (!roomData) return
+    const res = await fetch(
+      `/api/reactions/mutual?room_id=${roomData.roomId}&my_session=${getSessionToken()}&my_participant_id=${roomData.participantId}`
+    )
+    const d = await res.json()
+    if (d.mutualIds?.length > 0) setMutualBanner(true)
+  }, [roomData])
+
+  // 초기 로드 시 쌍방 호감 확인
+  useEffect(() => {
+    if (roomData) checkMutual()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // 자제 시그널 1개만 받아도 카운트다운 시작
   useEffect(() => {
@@ -66,19 +83,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     return () => clearTimeout(t)
   }, [warningCountdown])
 
-  // 쓌방 호감 확인
-  const checkMutual = useCallback(async () => {
-    if (!roomData) return
-    const res = await fetch(
-      `/api/reactions/mutual?room_id=${roomData.roomId}&my_session=${getSessionToken()}&my_participant_id=${roomData.participantId}`
-    )
-    const d = await res.json()
-    if (d.mutualIds?.length > 0) setMutualBanner(true)
-  }, [roomData])
-
   useEffect(() => {
     if (state.reactions.length > prevReactionCount && prevReactionCount > 0) {
-      const latest = state.reactions[0]
+      const latest = state.reactions[state.reactions.length - 1]
       if (latest?.receiver_id === roomData?.participantId) {
         if (latest.type === 'heart') {
           showToast({ emoji: '💖', message: '누군가 하트를 보냈어요!', color: '#ff6b6b' })
@@ -112,6 +119,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     const id = Math.random().toString(36).slice(2)
     setHotFloaters(prev => [...prev, id])
     setTimeout(() => setHotFloaters(prev => prev.filter(x => x !== id)), 900)
+    // 로컬 카운트 즉시 증가 (Realtime 지연 보완)
+    setLocalHotCount(c => c + 1)
     if (roomData) sendReaction(roomData.participantId, 'hot')
   }
 
@@ -123,7 +132,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   const myHearts = state.reactions.filter(r => r.receiver_id === roomData.participantId && r.type === 'heart').length
   const totalReactions = state.reactions.filter(r => r.type !== 'hot').length
-  const hotTaps = state.reactions.filter(r => r.type === 'hot').length
+  const serverHotTaps = state.reactions.filter(r => r.type === 'hot').length
+  // 로컬 탭 카운트와 서버 카운트 중 큰 값 사용 (즉각 반응)
+  const hotTaps = Math.max(serverHotTaps, localHotCount)
   const totalHearts = state.reactions.filter(r => r.type === 'heart').length
   const hotIndex = Math.min(100, hotTaps * 10 + totalHearts * 3 + Math.round((currentMood ?? 0) * 8))
 
@@ -253,7 +264,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
-      {/* 쓌방 호감 배너 */}
+      {/* 쌍방 호감 배너 */}
       {mutualBanner && (
         <div style={{
           position: 'fixed', bottom: 108, left: '50%', transform: 'translateX(-50%)',
