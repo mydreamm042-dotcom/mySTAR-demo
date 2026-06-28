@@ -30,6 +30,7 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
   const roomData = getRoomData()
   const onRoomEndedRef = useRef(onRoomEnded)
   useEffect(() => { onRoomEndedRef.current = onRoomEnded }, [onRoomEnded])
+  const endedRef = useRef(false)
 
   const fetchInitial = useCallback(async () => {
     const [pRes, rRes, nRes] = await Promise.all([
@@ -80,17 +81,15 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
     timerRef.current = setInterval(async () => {
       setState(prev => {
         const nextRound = prev.currentRound + 1
-        // 새 라운드 저장
         fetch('/api/notification-rounds', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ room_id: roomId, round_number: nextRound }),
         })
-        // 진동
         if ('vibrate' in navigator) navigator.vibrate([200, 100, 200])
         return { ...prev, currentRound: nextRound, notification: { type: 'round', round: nextRound } }
       })
-    }, 60 * 60 * 1000) // 1시간
+    }, 60 * 60 * 1000)
   }, [roomId])
 
   useEffect(() => {
@@ -108,7 +107,6 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `room_id=eq.${roomId}` },
         (payload) => {
           const r = payload.new as Reaction & { sender_session: string }
-          // sender_session 제거하고 상태 업데이트
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { sender_session: _s, ...safeReaction } = r
           setState(prev => {
@@ -126,7 +124,6 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
             return { ...prev, reactions, warningCounts, moodAverages }
           })
 
-          // 수신자에게 알림
           const mySession = getSessionToken()
           const myParticipantId = roomData?.participantId
           if (safeReaction.receiver_id === myParticipantId) {
@@ -147,7 +144,7 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },
         (payload) => {
           if ((payload.new as { status: string }).status === 'ended') {
-            onRoomEndedRef.current?.()
+            if (!endedRef.current) { endedRef.current = true; onRoomEndedRef.current?.() }
           }
         }
       )
@@ -165,16 +162,29 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
       )
       .subscribe()
 
+    // 5초 폴링 폴백 — Realtime이 안 될 때 방 종료 감지
+    const poll = setInterval(async () => {
+      if (endedRef.current) return
+      try {
+        const res = await fetch(`/api/rooms/${roomCode}`)
+        const d = await res.json()
+        if (d.room?.status === 'ended') {
+          if (!endedRef.current) { endedRef.current = true; onRoomEndedRef.current?.() }
+        }
+      } catch { /* ignore */ }
+    }, 5000)
+
     return () => {
       supabase.removeChannel(channel)
       if (timerRef.current) clearInterval(timerRef.current)
+      clearInterval(poll)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId])
 
   const sendReaction = useCallback(async (
     receiver_id: string,
-    type: 'heart' | 'warning' | 'star',
+    type: 'heart' | 'warning' | 'star' | 'hot',
     value?: number
   ) => {
     const sender_session = getSessionToken()

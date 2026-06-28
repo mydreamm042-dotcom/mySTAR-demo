@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: '필수 파라미터가 누락됐습니다' }, { status: 400 })
   }
 
-  const validTypes: ReactionType[] = ['heart', 'warning', 'star']
+  const validTypes: ReactionType[] = ['heart', 'warning', 'star', 'hot']
   if (!validTypes.includes(type)) {
     return NextResponse.json({ error: '유효하지 않은 리액션 타입' }, { status: 400 })
   }
@@ -20,36 +20,41 @@ export async function POST(req: NextRequest) {
 
   const supabase = await createServerSupabaseClient()
 
-  // 자기 자신에게 보내기 방지 (별점은 전체 대상이므로 제외)
-  if (type !== 'star') {
-    const { data: selfCheck } = await supabase
-      .from('participants')
-      .select('id')
-      .eq('id', receiver_id)
-      .eq('session_token', sender_session)
-      .single()
+  // hot은 무제한 — 모든 제한 건너뜀
+  if (type !== 'hot') {
+    // 자기 자신에게 보내기 방지 (별점은 전체 대상이므로 제외)
+    if (type !== 'star') {
+      const { data: selfCheck } = await supabase
+        .from('participants')
+        .select('id')
+        .eq('id', receiver_id)
+        .eq('session_token', sender_session)
+        .single()
 
-    if (selfCheck) {
-      return NextResponse.json({ error: '자기 자신에게는 보낼 수 없습니다' }, { status: 400 })
+      if (selfCheck) {
+        return NextResponse.json({ error: '자기 자신에게는 보낼 수 없습니다' }, { status: 400 })
+      }
+    }
+
+    // 하트: 10분 쿨다운
+    if (type === 'heart') {
+      const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+      const { data: existing } = await supabase
+        .from('reactions')
+        .select('id')
+        .eq('room_id', room_id)
+        .eq('sender_session', sender_session)
+        .eq('type', 'heart')
+        .gte('created_at', tenMinAgo)
+        .single()
+
+      if (existing) {
+        return NextResponse.json({ error: '하트는 10분마다 보낼 수 있어요!' }, { status: 400 })
+      }
     }
   }
 
-  // 하트: 라운드당 1회 제한
-  if (type === 'heart') {
-    const { data: existing } = await supabase
-      .from('reactions')
-      .select('id')
-      .eq('room_id', room_id)
-      .eq('sender_session', sender_session)
-      .eq('type', 'heart')
-      .eq('round', round)
-      .single()
-
-    if (existing) {
-      return NextResponse.json({ error: '이 라운드에서 이미 하트를 보냈습니다' }, { status: 400 })
-    }
-  }
-
+  // sender_session은 DB에만 저장, 응답에서 제외
   const { data, error } = await supabase
     .from('reactions')
     .insert({ room_id, sender_session, receiver_id, type, value: value ?? null, round: round ?? 1 })
@@ -60,6 +65,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  // 자제 시그널이 3개 이상인지 확인
   if (type === 'warning') {
     const { count } = await supabase
       .from('reactions')
