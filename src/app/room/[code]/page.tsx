@@ -53,7 +53,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [warningCountdown, setWarningCountdown] = useState<number | null>(null)
   const warningStartedRef = useRef(false)
   const [mutualBanner, setMutualBanner] = useState(false)
-  const [newMutualIds, setNewMutualIds] = useState<string[]>([])
 
   useEffect(() => {
     if (!roomData || roomData.roomCode !== code) router.replace(`/join?code=${code}`)
@@ -72,35 +71,14 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   const checkMutual = useCallback(async () => {
     if (!roomData) return
-    const seenRaw = localStorage.getItem(`mystar_mutual_seen_${roomData.roomId}`)
-    const seen: string[] = seenRaw ? JSON.parse(seenRaw) : []
     const res = await fetch(
       `/api/reactions/mutual?room_id=${roomData.roomId}&my_session=${getSessionToken()}&my_participant_id=${roomData.participantId}`
     )
     const d = await res.json()
-    const allMutualIds: string[] = d.mutualIds ?? []
-    const freshIds = allMutualIds.filter(id => !seen.includes(id))
-    if (freshIds.length > 0) {
-      setNewMutualIds(freshIds)
+    if ((d.mutualIds ?? []).length > 0) {
       setMutualBanner(true)
     }
   }, [roomData])
-
-  useEffect(() => {
-    if (roomData) checkMutual()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const dismissMutual = () => {
-    setMutualBanner(false)
-    if (roomData && newMutualIds.length > 0) {
-      const seenRaw = localStorage.getItem(`mystar_mutual_seen_${roomData.roomId}`)
-      const seen: string[] = seenRaw ? JSON.parse(seenRaw) : []
-      const updated = Array.from(new Set([...seen, ...newMutualIds]))
-      localStorage.setItem(`mystar_mutual_seen_${roomData.roomId}`, JSON.stringify(updated))
-    }
-    setNewMutualIds([])
-  }
 
   useEffect(() => {
     const myWarnCount = state.warningCounts[roomData?.participantId ?? ''] ?? 0
@@ -240,7 +218,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             <div style={{ fontSize: 20, fontWeight: 800, color: '#fbbf24' }}>{currentMood !== undefined ? currentMood.toFixed(1) : '-'}</div>
             <div style={{ fontSize: 10, color: 'var(--muted2)' }}>분위기</div>
           </div>
-          {/* HOT 카드 */}
           <div className="card" style={{
             padding: '10px 8px 8px', textAlign: 'center',
             animation: flameLevel >= 1
@@ -335,7 +312,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       {/* 쌍방 호감 배너 — 화면 중앙 팝업 */}
       {mutualBanner && (
         <div
-          onClick={dismissMutual}
+          onClick={() => setMutualBanner(false)}
           style={{
             position: 'fixed', inset: 0, zIndex: 50,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -358,7 +335,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               상대방도 나에게<br />호감을 표시했어요!
             </p>
             <button
-              onClick={dismissMutual}
+              onClick={() => setMutualBanner(false)}
               className="btn btn-primary"
               style={{ fontSize: 15, minHeight: 48 }}
             >
