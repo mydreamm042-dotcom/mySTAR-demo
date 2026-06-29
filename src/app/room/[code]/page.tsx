@@ -13,10 +13,6 @@ function fmtCd(s: number) {
   return `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
 }
 
-// HOT 로직:
-// 1) 마지막 탭 후 10분간 % 유지
-// 2) 10분 초과 시 다음 10분에 걸쳐 0%로 감쇄
-// 3) 새 탭 들어오면 타이머 초기화 (현재 값 기준으로 올라감)
 const HOLD_MS   = 10 * 60 * 1000
 const DECAY_MS  = 10 * 60 * 1000
 const TOTAL_MS  = HOLD_MS + DECAY_MS
@@ -40,16 +36,11 @@ function calcHotIndex(
   participantCount: number,
 ): number {
   const n = Math.max(1, participantCount)
-
-  // 서버 기반 peak (다른 사용자 탭 반영)
   const serverTimes = serverHotReactions.map(r => new Date(r.created_at).getTime())
   const serverLastTap = serverTimes.length > 0 ? Math.max(...serverTimes) : 0
   const serverPeak = Math.min(100, Math.round(serverHotReactions.length / Math.sqrt(n) * HOT_SCALE))
   const serverCurrent = applyDecay(serverPeak, serverLastTap)
-
-  // 로컬 기반 peak (내 탭 + 새로고침 복원)
   const localCurrent = applyDecay(localPeak, localLastTapTime)
-
   return Math.max(serverCurrent, localCurrent)
 }
 
@@ -66,7 +57,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [hotPressed, setHotPressed] = useState(false)
   const [localPeakHot, setLocalPeakHot] = useState(0)
   const [localLastTapTime, setLocalLastTapTime] = useState(0)
-  // 10초마다 재계산 — 감쇄 구간에서 실시간으로 떨어지는 것이 보이도록
   const [tick, setTick] = useState(0)
   const hotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -80,7 +70,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   useEffect(() => {
     if (!roomData) return
-    // localStorage에서 HOT peak + lastTapTime 복원
     try {
       const savedPeak = localStorage.getItem(`mystar_hot_peak_${roomData.roomId}`)
       const savedLast = localStorage.getItem(`mystar_hot_last_${roomData.roomId}`)
@@ -93,8 +82,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         }
       }
     } catch { /* ignore */ }
-
-    // 10초마다 재계산
     const ticker = setInterval(() => setTick(n => n + 1), 10_000)
     return () => clearInterval(ticker)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -182,7 +169,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     setHotFloaters(prev => [...prev, id])
     setTimeout(() => setHotFloaters(prev => prev.filter(x => x !== id)), 900)
 
-    // 현재 표시값 기준으로 탭당 증가분만큼 올림 (식는 중에도 그 값에서 시작)
     const n = Math.max(1, state.participants.length)
     const perTap = HOT_SCALE / Math.sqrt(n)
     const currentHot = calcHotIndex(serverHotReactions, localPeakHot, localLastTapTime, state.participants.length)
@@ -196,7 +182,11 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         localStorage.setItem(`mystar_hot_last_${roomData.roomId}`, now.toString())
       } catch { /* ignore */ }
     }
-    if (roomData) sendReaction(roomData.participantId, 'hot')
+    if (roomData) {
+      sendReaction(roomData.participantId, 'hot').catch(err => {
+        console.error('[HOT] sendReaction failed:', err)
+      })
+    }
   }
 
   const currentMood = state.moodAverages[state.currentRound]
@@ -211,7 +201,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   void tick
   const hotIndex = calcHotIndex(serverHotReactions, localPeakHot, localLastTapTime, state.participants.length)
 
-  // 감쇄 중인지 판단 (로컬 + 서버 중 더 최근 탭 기준)
   const serverTimes = serverHotReactions.map(r => new Date(r.created_at).getTime())
   const effectiveLastTap = Math.max(localLastTapTime, serverTimes.length > 0 ? Math.max(...serverTimes) : 0)
   const elapsedSinceLastTap = effectiveLastTap > 0 ? Date.now() - effectiveLastTap : Infinity
@@ -224,6 +213,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const warningVisible = warningCountdown !== null
   const warningBottom = 100
   const mutualBottom = warningVisible ? warningBottom + 68 : warningBottom
+  void mutualBottom
 
   return (
     <main className="flex flex-col min-h-dvh" style={{ paddingBottom: 100 }}>
@@ -370,19 +360,39 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
+      {/* 쌍방 호감 배너 — 화면 중앙 팝업 */}
       {mutualBanner && (
-        <div className="animate-fade-in" style={{
-          position: 'fixed', bottom: mutualBottom, left: '50%', transform: 'translateX(-50%)',
-          width: 'calc(100% - 40px)', maxWidth: 408, zIndex: 41,
-          background: 'rgba(255,107,107,0.15)', border: '1.5px solid rgba(255,107,107,0.5)',
-          borderRadius: 16, padding: '14px 16px',
-          display: 'flex', alignItems: 'center', gap: 10,
-          transition: 'bottom 0.3s ease',
-        }}>
-          <span style={{ fontSize: 24 }}>💖</span>
-          <p style={{ fontSize: 14, fontWeight: 700, color: '#ff6b6b', flex: 1 }}>상대방도 나에게 호감을 표시했어요!</p>
-          <button onClick={dismissMutual}
-            style={{ background: 'none', border: 'none', color: 'var(--muted2)', fontSize: 18, cursor: 'pointer', padding: 4 }}>✕</button>
+        <div
+          onClick={dismissMutual}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 50,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)',
+            padding: '0 32px',
+          }}
+        >
+          <div
+            className="card animate-fade-in"
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: '100%', maxWidth: 320, padding: '32px 24px',
+              textAlign: 'center',
+              border: '1.5px solid rgba(255,107,107,0.5)',
+            }}
+          >
+            <div style={{ fontSize: 52, marginBottom: 12 }}>💖</div>
+            <p style={{ fontSize: 20, fontWeight: 800, color: '#ff6b6b', marginBottom: 8 }}>쌍방 호감!</p>
+            <p style={{ fontSize: 14, color: 'var(--text2)', marginBottom: 24, lineHeight: 1.6 }}>
+              상대방도 나에게<br />호감을 표시했어요!
+            </p>
+            <button
+              onClick={dismissMutual}
+              className="btn btn-primary"
+              style={{ fontSize: 15, minHeight: 48 }}
+            >
+              확인 ✕
+            </button>
+          </div>
         </div>
       )}
 

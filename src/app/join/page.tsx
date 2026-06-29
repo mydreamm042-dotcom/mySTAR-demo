@@ -4,11 +4,22 @@ import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { getSessionToken, storeRoomData } from '@/lib/session'
 
+const RANDOM_NICKNAMES = [
+  '소주1번', '안취했어', '오늘만산다', '고삐풀림', '날못막아',
+  '분위기왕', '술신강림', '흥부자', '열정맨', '웃음폭탄',
+  '오늘의MVP', '회식지박령', '나는전설', '이판사판', '밤새자자',
+  '황금망치', '모임의신', '까리한나', '핵인싸', '술꾼대장',
+]
+
+function randomNickname() {
+  return RANDOM_NICKNAMES[Math.floor(Math.random() * RANDOM_NICKNAMES.length)]
+}
+
 function JoinContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [code, setCode] = useState(searchParams.get('code') ?? '')
-  const [nickname, setNickname] = useState('')
+  const [nickname, setNickname] = useState(randomNickname)
   const [step, setStep] = useState<'code' | 'nickname'>(searchParams.get('code') ? 'nickname' : 'code')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -89,14 +100,22 @@ function JoinContent() {
             </div>
           </div>
           <p style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 700, marginBottom: 6, letterSpacing: '0.05em' }}>NICKNAME</p>
-          <h2 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8 }}>닉네임 설정</h2>
-          <p style={{ color: 'var(--muted2)', fontSize: 14, marginBottom: 28 }}>
-            나만 볼 수 있어요. 다른 사람에겐 <span style={{ color: 'var(--accent)' }}>"누군가"</span>로 표시돼요
+          <h2 style={{ fontSize: 28, fontWeight: 800, marginBottom: 6 }}>별명을 정해보세요!</h2>
+          <p style={{ color: 'var(--muted2)', fontSize: 13, marginBottom: 28 }}>
+            ex) 소주1번, 고삐풀림, 날못막아
           </p>
-          <input className="input" type="text" value={nickname}
-            onChange={e => setNickname(e.target.value.slice(0, 10))}
-            onKeyDown={e => e.key === 'Enter' && handleJoin()}
-            placeholder="나만 아는 이름" maxLength={10} autoFocus />
+          <div style={{ position: 'relative' }}>
+            <input className="input" type="text" value={nickname}
+              onChange={e => setNickname(e.target.value.slice(0, 10))}
+              onKeyDown={e => e.key === 'Enter' && handleJoin()}
+              placeholder="내 별명" maxLength={10} autoFocus />
+            <button
+              onClick={() => setNickname(randomNickname())}
+              style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,107,107,0.12)', border: '1px solid rgba(255,107,107,0.25)', borderRadius: 8, padding: '4px 10px', fontSize: 12, color: 'var(--accent)', cursor: 'pointer', fontWeight: 700 }}
+            >
+              랜덤 🎲
+            </button>
+          </div>
           {error && <p style={{ marginTop: 8, fontSize: 13, color: '#ff6b6b' }}>{error}</p>}
           <button className="btn btn-primary" onClick={handleJoin} disabled={loading || !nickname.trim()}
             style={{ marginTop: 20, opacity: !nickname.trim() ? 0.4 : 1, fontSize: 17 }}>
