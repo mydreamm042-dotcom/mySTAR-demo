@@ -53,13 +53,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [warningCountdown, setWarningCountdown] = useState<number | null>(null)
   const warningStartedRef = useRef(false)
   const [mutualBanner, setMutualBanner] = useState(false)
+  const [newMutualIds, setNewMutualIds] = useState<string[]>([])
 
   useEffect(() => {
     if (!roomData || roomData.roomCode !== code) router.replace(`/join?code=${code}`)
   }, [code, roomData, router])
 
   useEffect(() => {
-    // 10초마다 재계산 — 감쇄 구간 실시간 표시
     const ticker = setInterval(() => setTick(n => n + 1), 10_000)
     return () => clearInterval(ticker)
   }, [])
@@ -72,12 +72,18 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   const checkMutual = useCallback(async () => {
     if (!roomData) return
-    if (localStorage.getItem(`mystar_mutual_${roomData.roomId}`) === 'dismissed') return
+    const seenRaw = localStorage.getItem(`mystar_mutual_seen_${roomData.roomId}`)
+    const seen: string[] = seenRaw ? JSON.parse(seenRaw) : []
     const res = await fetch(
       `/api/reactions/mutual?room_id=${roomData.roomId}&my_session=${getSessionToken()}&my_participant_id=${roomData.participantId}`
     )
     const d = await res.json()
-    if (d.mutualIds?.length > 0) setMutualBanner(true)
+    const allMutualIds: string[] = d.mutualIds ?? []
+    const freshIds = allMutualIds.filter(id => !seen.includes(id))
+    if (freshIds.length > 0) {
+      setNewMutualIds(freshIds)
+      setMutualBanner(true)
+    }
   }, [roomData])
 
   useEffect(() => {
@@ -87,7 +93,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   const dismissMutual = () => {
     setMutualBanner(false)
-    if (roomData) localStorage.setItem(`mystar_mutual_${roomData.roomId}`, 'dismissed')
+    if (roomData && newMutualIds.length > 0) {
+      const seenRaw = localStorage.getItem(`mystar_mutual_seen_${roomData.roomId}`)
+      const seen: string[] = seenRaw ? JSON.parse(seenRaw) : []
+      const updated = Array.from(new Set([...seen, ...newMutualIds]))
+      localStorage.setItem(`mystar_mutual_seen_${roomData.roomId}`, JSON.stringify(updated))
+    }
+    setNewMutualIds([])
   }
 
   useEffect(() => {
