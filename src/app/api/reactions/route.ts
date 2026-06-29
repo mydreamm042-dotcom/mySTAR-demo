@@ -43,6 +43,18 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `${label} 10분마다 보낼 수 있어요!` }, { status: 400 })
       }
     }
+
+    // 별점: 30분 쿨다운
+    if (type === 'star') {
+      const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+      const { data: existing } = await supabase
+        .from('reactions').select('id')
+        .eq('room_id', room_id).eq('sender_session', sender_session)
+        .eq('type', 'star').gte('created_at', thirtyMinAgo).single()
+      if (existing) {
+        return NextResponse.json({ error: '별점은 30분마다 투표할 수 있어요!' }, { status: 400 })
+      }
+    }
   }
 
   const { data, error } = await supabase
