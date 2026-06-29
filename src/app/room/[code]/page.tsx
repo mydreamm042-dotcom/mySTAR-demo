@@ -16,42 +16,41 @@ function fmtCd(s: number) {
 // HOT 로직:
 // 1) 마지막 탭 후 10분간 % 유지
 // 2) 10분 초과 시 다음 10분에 걸쳐 0%로 감쇄
-// 3) 새 탍 들어오면 타이머 전체 초기화
-const HOLD_MS   = 10 * 60 * 1000  // 10분 유지
-const DECAY_MS  = 10 * 60 * 1000  // 10분 감쇄
+// 3) 새 탭 들어오면 타이머 초기화 (현재 값 기준으로 올라감)
+const HOLD_MS   = 10 * 60 * 1000
+const DECAY_MS  = 10 * 60 * 1000
 const TOTAL_MS  = HOLD_MS + DECAY_MS
-const HOT_SCALE = 100 / 30         // 1명 30킭 = 100% (4명 60킭 = 100%)
+const HOT_SCALE = 100 / 30
+
+function applyDecay(peak: number, lastTapTime: number): number {
+  if (peak === 0 || lastTapTime === 0) return 0
+  const elapsed = Date.now() - lastTapTime
+  if (elapsed < HOLD_MS) return peak
+  if (elapsed < TOTAL_MS) {
+    const decayProgress = (elapsed - HOLD_MS) / DECAY_MS
+    return Math.max(0, Math.round(peak * (1 - decayProgress)))
+  }
+  return 0
+}
 
 function calcHotIndex(
   serverHotReactions: { created_at: string }[],
-  localTimestamps: number[],
+  localPeak: number,
+  localLastTapTime: number,
   participantCount: number,
 ): number {
-  const serverCount = serverHotReactions.length
-  const localCount = localTimestamps.length
-  const tapCount = Math.max(serverCount, localCount)
-  if (tapCount === 0) return 0
-
   const n = Math.max(1, participantCount)
-  const peakIndex = Math.min(100, Math.round(tapCount / Math.sqrt(n) * HOT_SCALE))
 
-  // 가장 최근 탍 시간 (서버 + 로컈 통합)
+  // 서버 기반 peak (다른 사용자 탭 반영)
   const serverTimes = serverHotReactions.map(r => new Date(r.created_at).getTime())
-  const allTimes = [...serverTimes, ...localTimestamps]
-  const lastTapTime = Math.max(...allTimes)
+  const serverLastTap = serverTimes.length > 0 ? Math.max(...serverTimes) : 0
+  const serverPeak = Math.min(100, Math.round(serverHotReactions.length / Math.sqrt(n) * HOT_SCALE))
+  const serverCurrent = applyDecay(serverPeak, serverLastTap)
 
-  const elapsed = Date.now() - lastTapTime
+  // 로컬 기반 peak (내 탭 + 새로고침 복원)
+  const localCurrent = applyDecay(localPeak, localLastTapTime)
 
-  if (elapsed < HOLD_MS) {
-    // 유지 구간: 프리즈
-    return peakIndex
-  } else if (elapsed < TOTAL_MS) {
-    // 감쇄 구간: 선형으로 0으로
-    const decayProgress = (elapsed - HOLD_MS) / DECAY_MS
-    return Math.max(0, Math.round(peakIndex * (1 - decayProgress)))
-  } else {
-    return 0
-  }
+  return Math.max(serverCurrent, localCurrent)
 }
 
 export default function RoomPage({ params }: { params: Promise<{ code: string }> }) {
@@ -65,7 +64,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [prevReactionCount, setPrevReactionCount] = useState(0)
   const [hotFloaters, setHotFloaters] = useState<string[]>([])
   const [hotPressed, setHotPressed] = useState(false)
-  const [localHotTimestamps, setLocalHotTimestamps] = useState<number[]>([])
+  const [localPeakHot, setLocalPeakHot] = useState(0)
+  const [localLastTapTime, setLocalLastTapTime] = useState(0)
   // 10초마다 재계산 — 감쇄 구간에서 실시간으로 떨어지는 것이 보이도록
   const [tick, setTick] = useState(0)
   const hotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -80,14 +80,17 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   useEffect(() => {
     if (!roomData) return
-    // localStorage에서 HOT 타임스탬프 복원 (20분 이내 것만 유효)
+    // localStorage에서 HOT peak + lastTapTime 복원
     try {
-      const saved = localStorage.getItem(`mystar_hot_${roomData.roomId}`)
-      if (saved) {
-        const all: number[] = JSON.parse(saved)
-        const fresh = all.filter(t => Date.now() - t < TOTAL_MS)
-        setLocalHotTimestamps(fresh)
-        localStorage.setItem(`mystar_hot_${roomData.roomId}`, JSON.stringify(fresh))
+      const savedPeak = localStorage.getItem(`mystar_hot_peak_${roomData.roomId}`)
+      const savedLast = localStorage.getItem(`mystar_hot_last_${roomData.roomId}`)
+      if (savedPeak && savedLast) {
+        const peak = parseInt(savedPeak)
+        const last = parseInt(savedLast)
+        if (Date.now() - last < TOTAL_MS) {
+          setLocalPeakHot(peak)
+          setLocalLastTapTime(last)
+        }
       }
     } catch { /* ignore */ }
 
@@ -179,14 +182,20 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     setHotFloaters(prev => [...prev, id])
     setTimeout(() => setHotFloaters(prev => prev.filter(x => x !== id)), 900)
 
-    setLocalHotTimestamps(prev => {
-      const updated = [...prev, now]
-      if (roomData) {
-        try { localStorage.setItem(`mystar_hot_${roomData.roomId}`, JSON.stringify(updated)) }
-        catch { /* ignore */ }
-      }
-      return updated
-    })
+    // 현재 표시값 기준으로 탭당 증가분만큼 올림 (식는 중에도 그 값에서 시작)
+    const n = Math.max(1, state.participants.length)
+    const perTap = HOT_SCALE / Math.sqrt(n)
+    const currentHot = calcHotIndex(serverHotReactions, localPeakHot, localLastTapTime, state.participants.length)
+    const newPeak = Math.min(100, Math.round(currentHot + perTap))
+
+    setLocalPeakHot(newPeak)
+    setLocalLastTapTime(now)
+    if (roomData) {
+      try {
+        localStorage.setItem(`mystar_hot_peak_${roomData.roomId}`, newPeak.toString())
+        localStorage.setItem(`mystar_hot_last_${roomData.roomId}`, now.toString())
+      } catch { /* ignore */ }
+    }
     if (roomData) sendReaction(roomData.participantId, 'hot')
   }
 
@@ -200,13 +209,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const totalReactions = state.reactions.filter(r => r.type !== 'hot').length
   const serverHotReactions = state.reactions.filter(r => r.type === 'hot')
   void tick
-  const hotIndex = calcHotIndex(serverHotReactions, localHotTimestamps, state.participants.length)
+  const hotIndex = calcHotIndex(serverHotReactions, localPeakHot, localLastTapTime, state.participants.length)
 
-  // 마지막 탍 시간 계산 (감쇄 중인지 표시용)
+  // 감쇄 중인지 판단 (로컬 + 서버 중 더 최근 탭 기준)
   const serverTimes = serverHotReactions.map(r => new Date(r.created_at).getTime())
-  const allTimes = [...serverTimes, ...localHotTimestamps]
-  const lastTapTime = allTimes.length > 0 ? Math.max(...allTimes) : 0
-  const elapsedSinceLastTap = lastTapTime > 0 ? Date.now() - lastTapTime : Infinity
+  const effectiveLastTap = Math.max(localLastTapTime, serverTimes.length > 0 ? Math.max(...serverTimes) : 0)
+  const elapsedSinceLastTap = effectiveLastTap > 0 ? Date.now() - effectiveLastTap : Infinity
   const isDecaying = elapsedSinceLastTap >= HOLD_MS && elapsedSinceLastTap < TOTAL_MS
 
   const flameLevel = hotIndex >= 80 ? 4 : hotIndex >= 60 ? 3 : hotIndex >= 40 ? 2 : hotIndex >= 20 ? 1 : 0
@@ -291,7 +299,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             <div style={{ fontSize: 17, fontWeight: 800, color: hotColor, lineHeight: 1 }}>
               {hotIndex}<span style={{ fontSize: 10 }}>%</span>
             </div>
-            {/* 감쇄 중일 때 처캜 표시 */}
             {isDecaying && (
               <div style={{ fontSize: 9, color: '#f97316', marginTop: 1, fontWeight: 700 }}>식는 중…</div>
             )}
