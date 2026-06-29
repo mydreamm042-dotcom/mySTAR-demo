@@ -13,30 +13,45 @@ function fmtCd(s: number) {
   return `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
 }
 
-// HOT 감쇄: 10분 선형 감쇄 / 배율 3.33 (15배 더 눈르게)
-// 4명 방에서 60번 킭 = 100%, 10분 후 = 0%
-const DECAY_MS = 10 * 60 * 1000   // 10분
-const HOT_SCALE = 100 / 30         // ≈3.33 — 1명 30번 킭 = 100%
-
-function decayScore(timestamps: number[]): number {
-  const now = Date.now()
-  return timestamps.reduce(
-    (sum, t) => sum + Math.max(0, 1 - (now - t) / DECAY_MS),
-    0,
-  )
-}
+// HOT 로직:
+// 1) 마지막 탭 후 10분간 % 유지
+// 2) 10분 초과 시 다음 10분에 걸쳐 0%로 감쇄
+// 3) 새 탍 들어오면 타이머 전체 초기화
+const HOLD_MS   = 10 * 60 * 1000  // 10분 유지
+const DECAY_MS  = 10 * 60 * 1000  // 10분 감쇄
+const TOTAL_MS  = HOLD_MS + DECAY_MS
+const HOT_SCALE = 100 / 30         // 1명 30킭 = 100% (4명 60킭 = 100%)
 
 function calcHotIndex(
   serverHotReactions: { created_at: string }[],
   localTimestamps: number[],
   participantCount: number,
 ): number {
+  const serverCount = serverHotReactions.length
+  const localCount = localTimestamps.length
+  const tapCount = Math.max(serverCount, localCount)
+  if (tapCount === 0) return 0
+
   const n = Math.max(1, participantCount)
-  const serverScore = decayScore(serverHotReactions.map(r => new Date(r.created_at).getTime()))
-  const localScore = decayScore(localTimestamps)
-  // max: 서버 로드 전 localStorage값 표시, 로드 후 전체 탭 반영
-  const rawScore = Math.max(serverScore, localScore)
-  return Math.min(100, Math.round(rawScore / Math.sqrt(n) * HOT_SCALE))
+  const peakIndex = Math.min(100, Math.round(tapCount / Math.sqrt(n) * HOT_SCALE))
+
+  // 가장 최근 탍 시간 (서버 + 로컈 통합)
+  const serverTimes = serverHotReactions.map(r => new Date(r.created_at).getTime())
+  const allTimes = [...serverTimes, ...localTimestamps]
+  const lastTapTime = Math.max(...allTimes)
+
+  const elapsed = Date.now() - lastTapTime
+
+  if (elapsed < HOLD_MS) {
+    // 유지 구간: 프리즈
+    return peakIndex
+  } else if (elapsed < TOTAL_MS) {
+    // 감쇄 구간: 선형으로 0으로
+    const decayProgress = (elapsed - HOLD_MS) / DECAY_MS
+    return Math.max(0, Math.round(peakIndex * (1 - decayProgress)))
+  } else {
+    return 0
+  }
 }
 
 export default function RoomPage({ params }: { params: Promise<{ code: string }> }) {
@@ -51,7 +66,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [hotFloaters, setHotFloaters] = useState<string[]>([])
   const [hotPressed, setHotPressed] = useState(false)
   const [localHotTimestamps, setLocalHotTimestamps] = useState<number[]>([])
-  // 10초마다 재계산 (감쇄가 빠르기 때문에 자주 업데이트)
+  // 10초마다 재계산 — 감쇄 구간에서 실시간으로 떨어지는 것이 보이도록
   const [tick, setTick] = useState(0)
   const hotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -65,18 +80,18 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   useEffect(() => {
     if (!roomData) return
-    // localStorage에서 HOT 타임스탬프 복원 (10분 이내 것만)
+    // localStorage에서 HOT 타임스탬프 복원 (20분 이내 것만 유효)
     try {
       const saved = localStorage.getItem(`mystar_hot_${roomData.roomId}`)
       if (saved) {
         const all: number[] = JSON.parse(saved)
-        const fresh = all.filter(t => Date.now() - t < DECAY_MS)
+        const fresh = all.filter(t => Date.now() - t < TOTAL_MS)
         setLocalHotTimestamps(fresh)
         localStorage.setItem(`mystar_hot_${roomData.roomId}`, JSON.stringify(fresh))
       }
     } catch { /* ignore */ }
 
-    // 10초마다 재계산 — 10분 감쇄라 시각적으로 바로 나타나도록
+    // 10초마다 재계산
     const ticker = setInterval(() => setTick(n => n + 1), 10_000)
     return () => clearInterval(ticker)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -172,7 +187,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       }
       return updated
     })
-
     if (roomData) sendReaction(roomData.participantId, 'hot')
   }
 
@@ -187,6 +201,13 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const serverHotReactions = state.reactions.filter(r => r.type === 'hot')
   void tick
   const hotIndex = calcHotIndex(serverHotReactions, localHotTimestamps, state.participants.length)
+
+  // 마지막 탍 시간 계산 (감쇄 중인지 표시용)
+  const serverTimes = serverHotReactions.map(r => new Date(r.created_at).getTime())
+  const allTimes = [...serverTimes, ...localHotTimestamps]
+  const lastTapTime = allTimes.length > 0 ? Math.max(...allTimes) : 0
+  const elapsedSinceLastTap = lastTapTime > 0 ? Date.now() - lastTapTime : Infinity
+  const isDecaying = elapsedSinceLastTap >= HOLD_MS && elapsedSinceLastTap < TOTAL_MS
 
   const flameLevel = hotIndex >= 80 ? 4 : hotIndex >= 60 ? 3 : hotIndex >= 40 ? 2 : hotIndex >= 20 ? 1 : 0
   const flickerKf = flameLevel >= 3 ? 'flame-intense' : 'flame-flicker'
@@ -231,6 +252,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
+      {/* 스탯 카드 */}
       <div style={{ padding: '0 20px', marginBottom: 16 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
           <div className="card" style={{ padding: '14px 8px', textAlign: 'center' }}>
@@ -248,38 +270,44 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             <div style={{ fontSize: 20, fontWeight: 800, color: '#fbbf24' }}>{currentMood !== undefined ? currentMood.toFixed(1) : '-'}</div>
             <div style={{ fontSize: 10, color: 'var(--muted2)' }}>분위기</div>
           </div>
+          {/* HOT 카드 */}
           <div className="card" style={{
-            padding: '14px 8px', textAlign: 'center',
+            padding: '10px 8px 8px', textAlign: 'center',
             animation: flameLevel >= 1
               ? `fire-pulse ${flameLevel >= 3 ? '0.7s' : flameLevel === 2 ? '1s' : '1.5s'} ease-in-out infinite`
               : 'none',
             borderColor: flameLevel >= 2 ? `rgba(249,115,22,${flameLevel * 0.12})` : undefined,
           }}>
-            <div style={{ height: 22, marginBottom: 2, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1 }}>
+            <div style={{ height: 20, marginBottom: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1 }}>
               {Array.from({ length: Math.max(1, flameLevel) }).map((_, i) => (
                 <span key={i} style={{
-                  fontSize: flameLevel >= 3 ? 16 : 18,
+                  fontSize: flameLevel >= 3 ? 14 : 16,
                   display: 'inline-block',
                   animation: flameLevel >= 1 ? `${flickerKf} ${flickerDur} ease-in-out infinite` : 'none',
                   animationDelay: `${i * 0.12}s`,
                 }}>🔥</span>
               ))}
             </div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: hotColor }}>
-              {hotIndex}<span style={{ fontSize: 11 }}>%</span>
+            <div style={{ fontSize: 17, fontWeight: 800, color: hotColor, lineHeight: 1 }}>
+              {hotIndex}<span style={{ fontSize: 10 }}>%</span>
             </div>
-            <div style={{ height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.06)', margin: '4px 4px 0', overflow: 'hidden' }}>
+            {/* 감쇄 중일 때 처캜 표시 */}
+            {isDecaying && (
+              <div style={{ fontSize: 9, color: '#f97316', marginTop: 1, fontWeight: 700 }}>식는 중…</div>
+            )}
+            <div style={{ height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.06)', margin: '3px 4px 0', overflow: 'hidden' }}>
               <div style={{
                 height: '100%', width: `${hotIndex}%`,
                 background: hotIndex >= 60 ? 'linear-gradient(90deg,#f97316,#ef4444)' : 'linear-gradient(90deg,#f59e0b,#f97316)',
-                transition: 'width 0.8s ease',
+                transition: 'width 1s ease',
               }} />
             </div>
-            <div style={{ fontSize: 10, color: 'var(--muted2)', marginTop: 3 }}>HOT</div>
+            <div style={{ fontSize: 10, color: 'var(--muted2)', marginTop: 2 }}>HOT</div>
           </div>
         </div>
       </div>
 
+      {/* HOT 버튼 */}
       <div style={{ padding: '0 20px', marginBottom: 16 }}>
         <div style={{ position: 'relative', display: 'flex', justifyContent: 'center' }}>
           {hotFloaters.map(id => (
@@ -299,6 +327,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
+      {/* 참여자 목록 */}
       <div style={{ padding: '0 20px', flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted2)' }}>참여자 목록</p>
