@@ -20,40 +20,37 @@ export async function POST(req: NextRequest) {
 
   const supabase = await createServerSupabaseClient()
 
-  // hot은 무제한
-  if (type !== 'hot') {
-    if (type !== 'star') {
-      const { data: selfCheck } = await supabase
-        .from('participants').select('id')
-        .eq('id', receiver_id).eq('session_token', sender_session).single()
-      if (selfCheck) {
-        return NextResponse.json({ error: '자기 자신에게는 보낼 수 없습니다' }, { status: 400 })
-      }
+  // hot은 무제한, 자신에게 보내는 것이므로 self-check 없음
+  if (type !== 'hot' && type !== 'star') {
+    const { data: selfCheck } = await supabase
+      .from('participants').select('id')
+      .eq('id', receiver_id).eq('session_token', sender_session).single()
+    if (selfCheck) {
+      return NextResponse.json({ error: '자기 자신에게는 보낼 수 없습니다' }, { status: 400 })
     }
+  }
 
-    // 하트 & 자제 시그널: 10분 쿨다운
-    if (type === 'heart' || type === 'warning') {
-      const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString()
-      const { data: existing } = await supabase
-        .from('reactions').select('id')
-        .eq('room_id', room_id).eq('sender_session', sender_session)
-        .eq('type', type).gte('created_at', tenMinAgo).single()
-      if (existing) {
-        const label = type === 'heart' ? '하트는' : '자제 시그널은'
-        return NextResponse.json({ error: `${label} 10분마다 보낼 수 있어요!` }, { status: 400 })
-      }
+  // 자제 시그널: 10분 쿨다운
+  if (type === 'warning') {
+    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+    const { data: existing } = await supabase
+      .from('reactions').select('id')
+      .eq('room_id', room_id).eq('sender_session', sender_session)
+      .eq('type', 'warning').gte('created_at', tenMinAgo).single()
+    if (existing) {
+      return NextResponse.json({ error: '자제 시그널은 10분마다 보낼 수 있어요!' }, { status: 400 })
     }
+  }
 
-    // 별점: 30분 쿨다운
-    if (type === 'star') {
-      const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
-      const { data: existing } = await supabase
-        .from('reactions').select('id')
-        .eq('room_id', room_id).eq('sender_session', sender_session)
-        .eq('type', 'star').gte('created_at', thirtyMinAgo).single()
-      if (existing) {
-        return NextResponse.json({ error: '별점은 30분마다 투표할 수 있어요!' }, { status: 400 })
-      }
+  // 별점: 30분 쿨다운
+  if (type === 'star') {
+    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+    const { data: existing } = await supabase
+      .from('reactions').select('id')
+      .eq('room_id', room_id).eq('sender_session', sender_session)
+      .eq('type', 'star').gte('created_at', thirtyMinAgo).single()
+    if (existing) {
+      return NextResponse.json({ error: '별점은 30분마다 투표할 수 있어요!' }, { status: 400 })
     }
   }
 
@@ -64,6 +61,7 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (error) {
+    console.error('[reactions POST] supabase error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 

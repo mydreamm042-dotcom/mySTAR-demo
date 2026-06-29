@@ -19,7 +19,7 @@ function JoinContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [code, setCode] = useState(searchParams.get('code') ?? '')
-  const [nickname, setNickname] = useState(randomNickname)
+  const [nickname, setNickname] = useState(() => randomNickname())
   const [step, setStep] = useState<'code' | 'nickname'>(searchParams.get('code') ? 'nickname' : 'code')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -101,24 +101,30 @@ function JoinContent() {
           </div>
           <p style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 700, marginBottom: 6, letterSpacing: '0.05em' }}>NICKNAME</p>
           <h2 style={{ fontSize: 28, fontWeight: 800, marginBottom: 6 }}>별명을 정해보세요!</h2>
-          <p style={{ color: 'var(--muted2)', fontSize: 13, marginBottom: 28 }}>
+          <p style={{ color: 'var(--muted2)', fontSize: 13, marginBottom: 20 }}>
             ex) 소주1번, 고삐풀림, 날못막아
           </p>
-          <div style={{ position: 'relative' }}>
-            <input className="input" type="text" value={nickname}
-              onChange={e => setNickname(e.target.value.slice(0, 10))}
-              onKeyDown={e => e.key === 'Enter' && handleJoin()}
-              placeholder="내 별명" maxLength={10} autoFocus />
-            <button
-              onClick={() => setNickname(randomNickname())}
-              style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,107,107,0.12)', border: '1px solid rgba(255,107,107,0.25)', borderRadius: 8, padding: '4px 10px', fontSize: 12, color: 'var(--accent)', cursor: 'pointer', fontWeight: 700 }}
-            >
-              랜덤 🎲
-            </button>
-          </div>
+          <input
+            className="input"
+            type="text"
+            value={nickname}
+            onChange={e => setNickname(e.target.value.slice(0, 10))}
+            onKeyDown={e => e.key === 'Enter' && handleJoin()}
+            placeholder="내 별명"
+            maxLength={10}
+            autoComplete="off"
+            autoCorrect="off"
+            autoFocus
+          />
+          <button
+            onClick={() => setNickname(randomNickname())}
+            style={{ marginTop: 10, width: '100%', padding: '10px', borderRadius: 12, background: 'rgba(255,107,107,0.08)', border: '1px solid rgba(255,107,107,0.2)', color: 'var(--accent)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+          >
+            🎲 다른 별명 추첫하기
+          </button>
           {error && <p style={{ marginTop: 8, fontSize: 13, color: '#ff6b6b' }}>{error}</p>}
           <button className="btn btn-primary" onClick={handleJoin} disabled={loading || !nickname.trim()}
-            style={{ marginTop: 20, opacity: !nickname.trim() ? 0.4 : 1, fontSize: 17 }}>
+            style={{ marginTop: 16, opacity: !nickname.trim() ? 0.4 : 1, fontSize: 17 }}>
             {loading ? '입장 중...' : '🚀 입장하기'}
           </button>
         </div>
