@@ -13,28 +13,28 @@ function fmtCd(s: number) {
   return `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
 }
 
-// HOT 지수 계산: 30분 선형 감쇄, 참여자 수 기준 정규화
-// rawScore = 각 탭의 신선도(0~1) 합산
-// n명이 모두 2번씩 탭하면 ≈ 100%
+// HOT 지수: 30분 선형 감쇄, 참여자 수 기준 정규화
+// N명이 모두 2번씩 탭 = ~100%
 const DECAY_MS = 30 * 60 * 1000
-const LOCAL_CONFIRM_MS = 10_000
 
-function calcHotScore(
-  hotReactions: { created_at: string }[],
+function decayScore(timestamps: number[]): number {
+  const now = Date.now()
+  return timestamps.reduce(
+    (sum, t) => sum + Math.max(0, 1 - (now - t) / DECAY_MS),
+    0,
+  )
+}
+
+function calcHotIndex(
+  serverHotReactions: { created_at: string }[],
   localTimestamps: number[],
   participantCount: number,
 ): number {
-  const now = Date.now()
-  const serverScore = hotReactions.reduce(
-    (sum, r) => sum + Math.max(0, 1 - (now - new Date(r.created_at).getTime()) / DECAY_MS),
-    0,
-  )
-  // 서버에서 아직 확인되지 않은 최근 탭만 추가 (이중 계산 방지)
-  const recentLocalScore = localTimestamps
-    .filter(t => now - t < LOCAL_CONFIRM_MS)
-    .reduce((sum, t) => sum + Math.max(0, 1 - (now - t) / DECAY_MS), 0)
-  const rawScore = serverScore + recentLocalScore
   const n = Math.max(1, participantCount)
+  const serverScore = decayScore(serverHotReactions.map(r => new Date(r.created_at).getTime()))
+  const localScore = decayScore(localTimestamps)
+  // max 사용: 서버 로드 전에는 localStorage 값, 로드 후에는 서버 값 (= 전체 탭 포함)
+  const rawScore = Math.max(serverScore, localScore)
   return Math.min(100, Math.round(rawScore / Math.sqrt(n) * 50))
 }
 
@@ -49,25 +49,37 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [prevReactionCount, setPrevReactionCount] = useState(0)
   const [hotFloaters, setHotFloaters] = useState<string[]>([])
   const [hotPressed, setHotPressed] = useState(false)
-  // 최근 로컬 탭 타임스탬프 (Realtime 확인 전 즉시 반영용)
+  // 내 HOT 탭 타임스탬프 저장 (localStorage 지속, 새로고침 복원)
   const [localHotTimestamps, setLocalHotTimestamps] = useState<number[]>([])
-  // 30초마다 감쇄 재계산 트리거
+  // 30초마다 재계산 트리거
   const [tick, setTick] = useState(0)
   const hotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [warningCountdown, setWarningCountdown] = useState<number | null>(null)
   const warningStartedRef = useRef(false)
-
   const [mutualBanner, setMutualBanner] = useState(false)
 
   useEffect(() => {
     if (!roomData || roomData.roomCode !== code) router.replace(`/join?code=${code}`)
   }, [code, roomData, router])
 
-  // 30초마다 감쇄 재계산
+  // localStorage에서 HOT 타임스탬프 복원
   useEffect(() => {
-    const t = setInterval(() => setTick(n => n + 1), 30_000)
-    return () => clearInterval(t)
+    if (!roomData) return
+    try {
+      const saved = localStorage.getItem(`mystar_hot_${roomData.roomId}`)
+      if (saved) {
+        const all: number[] = JSON.parse(saved)
+        const fresh = all.filter(t => Date.now() - t < DECAY_MS)
+        setLocalHotTimestamps(fresh)
+        localStorage.setItem(`mystar_hot_${roomData.roomId}`, JSON.stringify(fresh))
+      }
+    } catch { /* ignore */ }
+
+    // 30초 재계산 타이머
+    const ticker = setInterval(() => setTick(n => n + 1), 30_000)
+    return () => clearInterval(ticker)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const { state, sendReaction, dismissNotification } = useRoom(
@@ -78,7 +90,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   const checkMutual = useCallback(async () => {
     if (!roomData) return
-    // 영구 닫기한 경우 표시 안 함
     if (localStorage.getItem(`mystar_mutual_${roomData.roomId}`) === 'dismissed') return
     const res = await fetch(
       `/api/reactions/mutual?room_id=${roomData.roomId}&my_session=${getSessionToken()}&my_participant_id=${roomData.participantId}`
@@ -87,7 +98,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     if (d.mutualIds?.length > 0) setMutualBanner(true)
   }, [roomData])
 
-  // 초기 로드 시 쌍방 호감 확인
   useEffect(() => {
     if (roomData) checkMutual()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -153,7 +163,17 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     const id = Math.random().toString(36).slice(2)
     setHotFloaters(prev => [...prev, id])
     setTimeout(() => setHotFloaters(prev => prev.filter(x => x !== id)), 900)
-    setLocalHotTimestamps(prev => [...prev, now])
+
+    // localStorage에 저장 + state 업데이트
+    setLocalHotTimestamps(prev => {
+      const updated = [...prev, now]
+      if (roomData) {
+        try { localStorage.setItem(`mystar_hot_${roomData.roomId}`, JSON.stringify(updated)) }
+        catch { /* ignore */ }
+      }
+      return updated
+    })
+
     if (roomData) sendReaction(roomData.participantId, 'hot')
   }
 
@@ -166,18 +186,15 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const myHearts = state.reactions.filter(r => r.receiver_id === roomData.participantId && r.type === 'heart').length
   const totalReactions = state.reactions.filter(r => r.type !== 'hot').length
   const serverHotReactions = state.reactions.filter(r => r.type === 'hot')
-  // tick을 사용해 30초마다 재계산 (decay 반영)
-  void tick
-  const hotIndex = calcHotScore(serverHotReactions, localHotTimestamps, state.participants.length)
+  void tick // 30초 재계산 트리거
+  const hotIndex = calcHotIndex(serverHotReactions, localHotTimestamps, state.participants.length)
 
-  // 불꽃 강도 레벨 (0~4)
+  // 불꽃 애니메이션 강도
   const flameLevel = hotIndex >= 80 ? 4 : hotIndex >= 60 ? 3 : hotIndex >= 40 ? 2 : hotIndex >= 20 ? 1 : 0
-  const flickerKeyframe = flameLevel >= 3 ? 'flame-intense' : 'flame-flicker'
-  const flickerDuration = flameLevel >= 4 ? '0.45s' : flameLevel === 3 ? '0.6s' : flameLevel === 2 ? '0.8s' : '1.1s'
+  const flickerKf = flameLevel >= 3 ? 'flame-intense' : 'flame-flicker'
+  const flickerDur = flameLevel >= 4 ? '0.45s' : flameLevel === 3 ? '0.6s' : flameLevel === 2 ? '0.8s' : '1.1s'
   const hotColor = hotIndex >= 60 ? '#ef4444' : '#f97316'
-
   const warningVisible = warningCountdown !== null
-  // 자제 배너: 하단 100px 고정 / 쌍방 배너: 그 위로 올라감
   const warningBottom = 100
   const mutualBottom = warningVisible ? warningBottom + 68 : warningBottom
 
@@ -238,16 +255,19 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           {/* HOT 카드 — 강도에 따라 불꽃 애니메이션 */}
           <div className="card" style={{
             padding: '14px 8px', textAlign: 'center',
-            animation: flameLevel >= 1 ? `fire-pulse ${flameLevel >= 3 ? '0.7s' : flameLevel === 2 ? '1s' : '1.5s'} ease-in-out infinite` : 'none',
-            borderColor: flameLevel >= 2 ? `rgba(249,115,22,${flameLevel * 0.15})` : undefined,
+            animation: flameLevel >= 1
+              ? `fire-pulse ${flameLevel >= 3 ? '0.7s' : flameLevel === 2 ? '1s' : '1.5s'} ease-in-out infinite`
+              : 'none',
+            borderColor: flameLevel >= 2 ? `rgba(249,115,22,${flameLevel * 0.12})` : undefined,
           }}>
-            {/* 불꽃 이모지: 강도만큼 */}
             <div style={{ height: 22, marginBottom: 2, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1 }}>
               {Array.from({ length: Math.max(1, flameLevel) }).map((_, i) => (
                 <span key={i} style={{
                   fontSize: flameLevel >= 3 ? 16 : 18,
                   display: 'inline-block',
-                  animation: flameLevel >= 1 ? `${flickerKeyframe} ${flickerDuration} ease-in-out infinite` : 'none',
+                  animation: flameLevel >= 1
+                    ? `${flickerKf} ${flickerDur} ease-in-out infinite`
+                    : 'none',
                   animationDelay: `${i * 0.12}s`,
                 }}>🔥</span>
               ))}
@@ -255,14 +275,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             <div style={{ fontSize: 18, fontWeight: 800, color: hotColor }}>
               {hotIndex}<span style={{ fontSize: 11 }}>%</span>
             </div>
-            {/* 불꽃 게이지 바 */}
             <div style={{ height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.06)', margin: '4px 4px 0', overflow: 'hidden' }}>
               <div style={{
-                height: '100%',
-                width: `${hotIndex}%`,
-                background: hotIndex >= 60
-                  ? 'linear-gradient(90deg,#f97316,#ef4444)'
-                  : 'linear-gradient(90deg,#f59e0b,#f97316)',
+                height: '100%', width: `${hotIndex}%`,
+                background: hotIndex >= 60 ? 'linear-gradient(90deg,#f97316,#ef4444)' : 'linear-gradient(90deg,#f59e0b,#f97316)',
                 transition: 'width 0.8s ease',
               }} />
             </div>
@@ -279,10 +295,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           ))}
           <button onClick={handleHot} style={{
             width: '100%', minHeight: 54, borderRadius: 18,
-            background: `linear-gradient(135deg, ${hotIndex >= 60 ? '#dc2626,#b91c1c' : '#f97316,#ef4444'})`,
+            background: `linear-gradient(135deg,${hotIndex >= 60 ? '#dc2626,#b91c1c' : '#f97316,#ef4444'})`,
             border: 'none', color: '#fff',
-            fontSize: hotPressed ? 30 : 26, fontWeight: 800,
-            cursor: 'pointer',
+            fontSize: hotPressed ? 30 : 26, fontWeight: 800, cursor: 'pointer',
             transition: 'font-size 0.1s ease, transform 0.1s ease, background 0.5s ease',
             transform: hotPressed ? 'scale(1.06)' : 'scale(1)',
             boxShadow: `0 8px 24px rgba(${hotIndex >= 60 ? '220,38,38' : '249,115,22'},0.45)`,
@@ -345,7 +360,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       )}
 
-      {/* 자제 카운트다운 배너 — 하단 고정 (지금 표현하기 바로 위) */}
+      {/* 자제 배너 — 하단 고정 (지금 표현하기 바로 위) */}
       {warningVisible && (
         <div style={{
           position: 'fixed', bottom: warningBottom, left: '50%', transform: 'translateX(-50%)',
@@ -369,11 +384,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       {state.notification && (
         <NotificationBanner round={state.notification.round} onOpen={() => { dismissNotification(); setShowModal(true) }} onDismiss={dismissNotification} />
       )}
-
       {showModal && (
         <InteractionModal participants={state.participants} myParticipantId={roomData.participantId} round={state.currentRound} onSend={sendReaction} onClose={() => setShowModal(false)} />
       )}
-
       {showQR && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={() => setShowQR(false)}>
           <div className="card animate-slide-up" style={{ width: '100%', maxWidth: 448, padding: 24, borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }} onClick={e => e.stopPropagation()}>
@@ -382,7 +395,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           </div>
         </div>
       )}
-
       <HeartToast />
     </main>
   )
