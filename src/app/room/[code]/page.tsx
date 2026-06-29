@@ -13,9 +13,10 @@ function fmtCd(s: number) {
   return `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
 }
 
-// HOT 지수: 30분 선형 감쇄, 참여자 수 기준 정규화
-// N명이 모두 2번씩 탭 = ~100%
-const DECAY_MS = 30 * 60 * 1000
+// HOT 감쇄: 10분 선형 감쇄 / 배율 3.33 (15배 더 눈르게)
+// 4명 방에서 60번 킭 = 100%, 10분 후 = 0%
+const DECAY_MS = 10 * 60 * 1000   // 10분
+const HOT_SCALE = 100 / 30         // ≈3.33 — 1명 30번 킭 = 100%
 
 function decayScore(timestamps: number[]): number {
   const now = Date.now()
@@ -33,9 +34,9 @@ function calcHotIndex(
   const n = Math.max(1, participantCount)
   const serverScore = decayScore(serverHotReactions.map(r => new Date(r.created_at).getTime()))
   const localScore = decayScore(localTimestamps)
-  // max 사용: 서버 로드 전에는 localStorage 값, 로드 후에는 서버 값 (= 전체 탭 포함)
+  // max: 서버 로드 전 localStorage값 표시, 로드 후 전체 탭 반영
   const rawScore = Math.max(serverScore, localScore)
-  return Math.min(100, Math.round(rawScore / Math.sqrt(n) * 50))
+  return Math.min(100, Math.round(rawScore / Math.sqrt(n) * HOT_SCALE))
 }
 
 export default function RoomPage({ params }: { params: Promise<{ code: string }> }) {
@@ -49,9 +50,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [prevReactionCount, setPrevReactionCount] = useState(0)
   const [hotFloaters, setHotFloaters] = useState<string[]>([])
   const [hotPressed, setHotPressed] = useState(false)
-  // 내 HOT 탭 타임스탬프 저장 (localStorage 지속, 새로고침 복원)
   const [localHotTimestamps, setLocalHotTimestamps] = useState<number[]>([])
-  // 30초마다 재계산 트리거
+  // 10초마다 재계산 (감쇄가 빠르기 때문에 자주 업데이트)
   const [tick, setTick] = useState(0)
   const hotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -63,9 +63,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     if (!roomData || roomData.roomCode !== code) router.replace(`/join?code=${code}`)
   }, [code, roomData, router])
 
-  // localStorage에서 HOT 타임스탬프 복원
   useEffect(() => {
     if (!roomData) return
+    // localStorage에서 HOT 타임스탬프 복원 (10분 이내 것만)
     try {
       const saved = localStorage.getItem(`mystar_hot_${roomData.roomId}`)
       if (saved) {
@@ -76,8 +76,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       }
     } catch { /* ignore */ }
 
-    // 30초 재계산 타이머
-    const ticker = setInterval(() => setTick(n => n + 1), 30_000)
+    // 10초마다 재계산 — 10분 감쇄라 시각적으로 바로 나타나도록
+    const ticker = setInterval(() => setTick(n => n + 1), 10_000)
     return () => clearInterval(ticker)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -164,7 +164,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     setHotFloaters(prev => [...prev, id])
     setTimeout(() => setHotFloaters(prev => prev.filter(x => x !== id)), 900)
 
-    // localStorage에 저장 + state 업데이트
     setLocalHotTimestamps(prev => {
       const updated = [...prev, now]
       if (roomData) {
@@ -186,10 +185,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const myHearts = state.reactions.filter(r => r.receiver_id === roomData.participantId && r.type === 'heart').length
   const totalReactions = state.reactions.filter(r => r.type !== 'hot').length
   const serverHotReactions = state.reactions.filter(r => r.type === 'hot')
-  void tick // 30초 재계산 트리거
+  void tick
   const hotIndex = calcHotIndex(serverHotReactions, localHotTimestamps, state.participants.length)
 
-  // 불꽃 애니메이션 강도
   const flameLevel = hotIndex >= 80 ? 4 : hotIndex >= 60 ? 3 : hotIndex >= 40 ? 2 : hotIndex >= 20 ? 1 : 0
   const flickerKf = flameLevel >= 3 ? 'flame-intense' : 'flame-flicker'
   const flickerDur = flameLevel >= 4 ? '0.45s' : flameLevel === 3 ? '0.6s' : flameLevel === 2 ? '0.8s' : '1.1s'
@@ -201,7 +199,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   return (
     <main className="flex flex-col min-h-dvh" style={{ paddingBottom: 100 }}>
 
-      {/* 헤더 */}
       <div style={{ padding: '52px 20px 16px', background: 'linear-gradient(180deg,rgba(255,107,107,0.06) 0%,transparent 100%)' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
           <div>
@@ -234,7 +231,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
-      {/* 스탯 카드 */}
       <div style={{ padding: '0 20px', marginBottom: 16 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
           <div className="card" style={{ padding: '14px 8px', textAlign: 'center' }}>
@@ -252,7 +248,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             <div style={{ fontSize: 20, fontWeight: 800, color: '#fbbf24' }}>{currentMood !== undefined ? currentMood.toFixed(1) : '-'}</div>
             <div style={{ fontSize: 10, color: 'var(--muted2)' }}>분위기</div>
           </div>
-          {/* HOT 카드 — 강도에 따라 불꽃 애니메이션 */}
           <div className="card" style={{
             padding: '14px 8px', textAlign: 'center',
             animation: flameLevel >= 1
@@ -265,9 +260,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 <span key={i} style={{
                   fontSize: flameLevel >= 3 ? 16 : 18,
                   display: 'inline-block',
-                  animation: flameLevel >= 1
-                    ? `${flickerKf} ${flickerDur} ease-in-out infinite`
-                    : 'none',
+                  animation: flameLevel >= 1 ? `${flickerKf} ${flickerDur} ease-in-out infinite` : 'none',
                   animationDelay: `${i * 0.12}s`,
                 }}>🔥</span>
               ))}
@@ -287,7 +280,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
-      {/* HOT 버튼 */}
       <div style={{ padding: '0 20px', marginBottom: 16 }}>
         <div style={{ position: 'relative', display: 'flex', justifyContent: 'center' }}>
           {hotFloaters.map(id => (
@@ -307,7 +299,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
-      {/* 참여자 목록 */}
       <div style={{ padding: '0 20px', flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted2)' }}>참여자 목록</p>
@@ -343,7 +334,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
-      {/* 쌍방 호감 배너 — 자제 배너 위 */}
       {mutualBanner && (
         <div className="animate-fade-in" style={{
           position: 'fixed', bottom: mutualBottom, left: '50%', transform: 'translateX(-50%)',
@@ -360,7 +350,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       )}
 
-      {/* 자제 배너 — 하단 고정 (지금 표현하기 바로 위) */}
       {warningVisible && (
         <div style={{
           position: 'fixed', bottom: warningBottom, left: '50%', transform: 'translateX(-50%)',
@@ -375,7 +364,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       )}
 
-      {/* 하단 표현하기 버튼 */}
       <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 448, padding: '16px 20px 32px', background: 'linear-gradient(0deg,var(--bg) 60%,transparent)' }}>
         <button className="btn btn-primary" onClick={() => setShowModal(true)}
           style={{ fontSize: 18, minHeight: 60, boxShadow: '0 12px 32px rgba(255,107,107,0.5)' }}>✨ 지금 표현하기</button>
