@@ -18,8 +18,15 @@ const DECAY_MS  = 10 * 60 * 1000
 const TOTAL_MS  = HOLD_MS + DECAY_MS
 const HOT_SCALE = 100 / 30
 
-function applyDecay(peak: number, lastTapTime: number): number {
-  if (peak === 0 || lastTapTime === 0) return 0
+function calcHotIndex(
+  serverHotReactions: { created_at: string }[],
+  participantCount: number,
+): number {
+  if (serverHotReactions.length === 0) return 0
+  const n = Math.max(1, participantCount)
+  const serverTimes = serverHotReactions.map(r => new Date(r.created_at).getTime())
+  const lastTapTime = Math.max(...serverTimes)
+  const peak = Math.min(100, Math.round(serverHotReactions.length / Math.sqrt(n) * HOT_SCALE))
   const elapsed = Date.now() - lastTapTime
   if (elapsed < HOLD_MS) return peak
   if (elapsed < TOTAL_MS) {
@@ -27,21 +34,6 @@ function applyDecay(peak: number, lastTapTime: number): number {
     return Math.max(0, Math.round(peak * (1 - decayProgress)))
   }
   return 0
-}
-
-function calcHotIndex(
-  serverHotReactions: { created_at: string }[],
-  localPeak: number,
-  localLastTapTime: number,
-  participantCount: number,
-): number {
-  const n = Math.max(1, participantCount)
-  const serverTimes = serverHotReactions.map(r => new Date(r.created_at).getTime())
-  const serverLastTap = serverTimes.length > 0 ? Math.max(...serverTimes) : 0
-  const serverPeak = Math.min(100, Math.round(serverHotReactions.length / Math.sqrt(n) * HOT_SCALE))
-  const serverCurrent = applyDecay(serverPeak, serverLastTap)
-  const localCurrent = applyDecay(localPeak, localLastTapTime)
-  return Math.max(serverCurrent, localCurrent)
 }
 
 export default function RoomPage({ params }: { params: Promise<{ code: string }> }) {
@@ -55,8 +47,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [prevReactionCount, setPrevReactionCount] = useState(0)
   const [hotFloaters, setHotFloaters] = useState<string[]>([])
   const [hotPressed, setHotPressed] = useState(false)
-  const [localPeakHot, setLocalPeakHot] = useState(0)
-  const [localLastTapTime, setLocalLastTapTime] = useState(0)
   const [tick, setTick] = useState(0)
   const hotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -69,22 +59,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   }, [code, roomData, router])
 
   useEffect(() => {
-    if (!roomData) return
-    try {
-      const savedPeak = localStorage.getItem(`mystar_hot_peak_${roomData.roomId}`)
-      const savedLast = localStorage.getItem(`mystar_hot_last_${roomData.roomId}`)
-      if (savedPeak && savedLast) {
-        const peak = parseInt(savedPeak)
-        const last = parseInt(savedLast)
-        if (Date.now() - last < TOTAL_MS) {
-          setLocalPeakHot(peak)
-          setLocalLastTapTime(last)
-        }
-      }
-    } catch { /* ignore */ }
+    // 10초마다 재계산 — 감쇄 구간 실시간 표시
     const ticker = setInterval(() => setTick(n => n + 1), 10_000)
     return () => clearInterval(ticker)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const { state, sendReaction, dismissNotification } = useRoom(
@@ -161,27 +138,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const handleLeave = () => { clearRoomData(); router.replace('/') }
 
   const handleHot = () => {
-    const now = Date.now()
     setHotPressed(true)
     if (hotTimerRef.current) clearTimeout(hotTimerRef.current)
     hotTimerRef.current = setTimeout(() => setHotPressed(false), 150)
     const id = Math.random().toString(36).slice(2)
     setHotFloaters(prev => [...prev, id])
     setTimeout(() => setHotFloaters(prev => prev.filter(x => x !== id)), 900)
-
-    const n = Math.max(1, state.participants.length)
-    const perTap = HOT_SCALE / Math.sqrt(n)
-    const currentHot = calcHotIndex(serverHotReactions, localPeakHot, localLastTapTime, state.participants.length)
-    const newPeak = Math.min(100, Math.round(currentHot + perTap))
-
-    setLocalPeakHot(newPeak)
-    setLocalLastTapTime(now)
-    if (roomData) {
-      try {
-        localStorage.setItem(`mystar_hot_peak_${roomData.roomId}`, newPeak.toString())
-        localStorage.setItem(`mystar_hot_last_${roomData.roomId}`, now.toString())
-      } catch { /* ignore */ }
-    }
     if (roomData) {
       sendReaction(roomData.participantId, 'hot').catch(err => {
         console.error('[HOT] sendReaction failed:', err)
@@ -199,12 +161,12 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const totalReactions = state.reactions.filter(r => r.type !== 'hot').length
   const serverHotReactions = state.reactions.filter(r => r.type === 'hot')
   void tick
-  const hotIndex = calcHotIndex(serverHotReactions, localPeakHot, localLastTapTime, state.participants.length)
+  const hotIndex = calcHotIndex(serverHotReactions, state.participants.length)
 
   const serverTimes = serverHotReactions.map(r => new Date(r.created_at).getTime())
-  const effectiveLastTap = Math.max(localLastTapTime, serverTimes.length > 0 ? Math.max(...serverTimes) : 0)
-  const elapsedSinceLastTap = effectiveLastTap > 0 ? Date.now() - effectiveLastTap : Infinity
-  const isDecaying = elapsedSinceLastTap >= HOLD_MS && elapsedSinceLastTap < TOTAL_MS
+  const lastTapTime = serverTimes.length > 0 ? Math.max(...serverTimes) : 0
+  const elapsed = lastTapTime > 0 ? Date.now() - lastTapTime : Infinity
+  const isDecaying = elapsed >= HOLD_MS && elapsed < TOTAL_MS
 
   const flameLevel = hotIndex >= 80 ? 4 : hotIndex >= 60 ? 3 : hotIndex >= 40 ? 2 : hotIndex >= 20 ? 1 : 0
   const flickerKf = flameLevel >= 3 ? 'flame-intense' : 'flame-flicker'
@@ -212,8 +174,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const hotColor = hotIndex >= 60 ? '#ef4444' : '#f97316'
   const warningVisible = warningCountdown !== null
   const warningBottom = 100
-  const mutualBottom = warningVisible ? warningBottom + 68 : warningBottom
-  void mutualBottom
 
   return (
     <main className="flex flex-col min-h-dvh" style={{ paddingBottom: 100 }}>
