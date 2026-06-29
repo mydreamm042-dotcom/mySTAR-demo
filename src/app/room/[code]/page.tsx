@@ -125,7 +125,20 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     router.push(`/room/${code}/result`)
   }
 
-  const handleLeave = () => { clearRoomData(); router.replace('/') }
+  const handleLeave = async () => {
+    if (roomData) {
+      await fetch('/api/participants', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          participant_id: roomData.participantId,
+          session_token: getSessionToken(),
+        }),
+      })
+    }
+    clearRoomData()
+    router.replace('/')
+  }
 
   const handleHot = () => {
     setHotPressed(true)

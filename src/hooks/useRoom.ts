@@ -10,8 +10,8 @@ export interface RoomState {
   reactions: Reaction[]
   currentRound: number
   rounds: NotificationRound[]
-  warningCounts: Record<string, number>  // receiver_id → count
-  moodAverages: Record<number, number>   // round → average
+  warningCounts: Record<string, number>
+  moodAverages: Record<number, number>
   notification: { type: 'round'; round: number } | null
 }
 
@@ -47,13 +47,11 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
     const rounds: NotificationRound[] = nData.rounds ?? []
     const currentRound = rounds.length > 0 ? Math.max(...rounds.map((r) => r.round_number)) : 1
 
-    // 자제 시그널 집계
     const warningCounts: Record<string, number> = {}
     reactions.filter(r => r.type === 'warning').forEach(r => {
       warningCounts[r.receiver_id] = (warningCounts[r.receiver_id] ?? 0) + 1
     })
 
-    // 분위기 평균 집계
     const moodAverages: Record<number, number> = {}
     const starsByRound: Record<number, number[]> = {}
     reactions.filter(r => r.type === 'star').forEach(r => {
@@ -75,7 +73,6 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
     }))
   }, [roomId, roomCode])
 
-  // 1시간 타이머
   const startRoundTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current)
     timerRef.current = setInterval(async () => {
@@ -96,12 +93,17 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
     fetchInitial()
     startRoundTimer()
 
-    // Realtime 구독
     const channel = supabase
       .channel(`room:${roomId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'participants', filter: `room_id=eq.${roomId}` },
         (payload) => {
           setState(prev => ({ ...prev, participants: [...prev.participants, payload.new as Participant] }))
+        }
+      )
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'participants', filter: `room_id=eq.${roomId}` },
+        (payload) => {
+          const deleted = payload.old as { id: string }
+          setState(prev => ({ ...prev, participants: prev.participants.filter(p => p.id !== deleted.id) }))
         }
       )
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `room_id=eq.${roomId}` },
@@ -162,7 +164,6 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
       )
       .subscribe()
 
-    // 5초 폴링 폴백 — Realtime이 안 될 때 방 종료 감지
     const poll = setInterval(async () => {
       if (endedRef.current) return
       try {
