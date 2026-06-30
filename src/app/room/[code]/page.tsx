@@ -69,18 +69,26 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     () => router.push(`/room/${code}/result`),
   )
 
-  const checkMutual = useCallback(async () => {
+  // 받는 쪽: 쌍방인 사람이 있으면 배너
+  const checkMutualOnReceive = useCallback(async () => {
     if (!roomData) return
     const res = await fetch(
       `/api/reactions/mutual?room_id=${roomData.roomId}&my_session=${getSessionToken()}&my_participant_id=${roomData.participantId}`
     )
     const d = await res.json()
-    if ((d.mutualIds ?? []).length > 0) {
-      setMutualBanner(true)
-    }
+    if (d.isNewMutual) setMutualBanner(true)
   }, [roomData])
 
-  // sendReaction 래핑: 하트 보낼 때 보낸 쪽도 쌍방 확인
+  // 보내는 쪽: 이번 하트로 새 라운드가 성립됐는지 확인
+  const checkMutualOnSend = useCallback(async (receiver_id: string) => {
+    if (!roomData) return
+    const res = await fetch(
+      `/api/reactions/mutual?room_id=${roomData.roomId}&my_session=${getSessionToken()}&my_participant_id=${roomData.participantId}&just_sent_to=${receiver_id}`
+    )
+    const d = await res.json()
+    if (d.isNewMutual) setMutualBanner(true)
+  }, [roomData])
+
   const handleSend = useCallback(async (
     receiver_id: string,
     type: 'heart' | 'warning' | 'star' | 'hot',
@@ -88,10 +96,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   ) => {
     const result = await sendReaction(receiver_id, type, value)
     if (type === 'heart') {
-      checkMutual()
+      checkMutualOnSend(receiver_id)
     }
     return result
-  }, [sendReaction, checkMutual])
+  }, [sendReaction, checkMutualOnSend])
 
   useEffect(() => {
     const myWarnCount = state.warningCounts[roomData?.participantId ?? ''] ?? 0
@@ -117,7 +125,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       if (latest?.receiver_id === roomData?.participantId) {
         if (latest.type === 'heart') {
           showToast({ emoji: '💖', message: '누군가 하트를 보냈어요!', color: '#ff6b6b' })
-          checkMutual()
+          checkMutualOnReceive()
         } else if (latest.type === 'warning') {
           showToast({ emoji: '🤫', message: '잠깐, 오늘 좀 과한 것 같아요', color: '#f59e0b' })
         }
@@ -226,7 +234,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
-      {/* 스탯 카드 */}
       <div style={{ padding: '0 20px', marginBottom: 16 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
           <div className="card" style={{ padding: '14px 8px', textAlign: 'center' }}>
@@ -279,7 +286,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
-      {/* HOT 버튼 */}
       <div style={{ padding: '0 20px', marginBottom: 16 }}>
         <div style={{ position: 'relative', display: 'flex', justifyContent: 'center' }}>
           {hotFloaters.map(id => (
@@ -299,7 +305,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
-      {/* 참여자 목록 */}
       <div style={{ padding: '0 20px', flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted2)' }}>참여자 목록</p>
@@ -335,7 +340,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
-      {/* 통했어요 배너 — 화면 중앙 팝업 */}
       {mutualBanner && (
         <div
           onClick={() => setMutualBanner(false)}
