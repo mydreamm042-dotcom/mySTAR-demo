@@ -69,37 +69,28 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     () => router.push(`/room/${code}/result`),
   )
 
-  // 받는 쪽: 쌍방인 사람이 있으면 배너
-  const checkMutualOnReceive = useCallback(async () => {
+  // 받는 쪽: sender_participant_id를 이용해 통했는지 확인
+  const checkMutualOnReceive = useCallback(async (senderParticipantId: string) => {
     if (!roomData) return
     const res = await fetch(
-      `/api/reactions/mutual?room_id=${roomData.roomId}&my_session=${getSessionToken()}&my_participant_id=${roomData.participantId}`
+      `/api/reactions/mutual?room_id=${roomData.roomId}&my_session=${getSessionToken()}&my_participant_id=${roomData.participantId}&just_received_from=${senderParticipantId}`
     )
     const d = await res.json()
     if (d.isNewMutual) setMutualBanner(true)
   }, [roomData])
 
-  // 보내는 쪽: 이번 하트로 새 라운드가 성립됐는지 확인
-  const checkMutualOnSend = useCallback(async (receiver_id: string) => {
-    if (!roomData) return
-    const res = await fetch(
-      `/api/reactions/mutual?room_id=${roomData.roomId}&my_session=${getSessionToken()}&my_participant_id=${roomData.participantId}&just_sent_to=${receiver_id}`
-    )
-    const d = await res.json()
-    if (d.isNewMutual) setMutualBanner(true)
-  }, [roomData])
-
+  // 보내는 쪽: API 응답에 isMutual 포함 (스테일 리드 없음)
   const handleSend = useCallback(async (
     receiver_id: string,
     type: 'heart' | 'warning' | 'star' | 'hot',
     value?: number
   ) => {
     const result = await sendReaction(receiver_id, type, value)
-    if (type === 'heart') {
-      checkMutualOnSend(receiver_id)
+    if (type === 'heart' && result.isMutual) {
+      setMutualBanner(true)
     }
     return result
-  }, [sendReaction, checkMutualOnSend])
+  }, [sendReaction])
 
   useEffect(() => {
     const myWarnCount = state.warningCounts[roomData?.participantId ?? ''] ?? 0
@@ -125,7 +116,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       if (latest?.receiver_id === roomData?.participantId) {
         if (latest.type === 'heart') {
           showToast({ emoji: '💖', message: '누군가 하트를 보냈어요!', color: '#ff6b6b' })
-          checkMutualOnReceive()
+          if (latest.sender_participant_id) {
+            checkMutualOnReceive(latest.sender_participant_id)
+          }
         } else if (latest.type === 'warning') {
           showToast({ emoji: '🤫', message: '잠깐, 오늘 좀 과한 것 같아요', color: '#f59e0b' })
         }

@@ -23,6 +23,7 @@ export interface Reaction {
   id: string
   room_id: string
   receiver_id: string
+  sender_participant_id: string | null
   type: ReactionType
   value: number | null
   round: number

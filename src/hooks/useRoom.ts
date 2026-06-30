@@ -109,6 +109,7 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `room_id=eq.${roomId}` },
         (payload) => {
           const r = payload.new as Reaction & { sender_session: string }
+          // sender_session 제거, sender_participant_id는 유지 (민감하지 않음)
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { sender_session: _s, ...safeReaction } = r
           setState(prev => {
@@ -126,7 +127,6 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
             return { ...prev, reactions, warningCounts, moodAverages }
           })
 
-          const mySession = getSessionToken()
           const myParticipantId = roomData?.participantId
           if (safeReaction.receiver_id === myParticipantId) {
             if (safeReaction.type === 'heart') {
@@ -140,7 +140,6 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
               })
             }
           }
-          void mySession
         }
       )
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },

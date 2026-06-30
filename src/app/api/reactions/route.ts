@@ -20,7 +20,6 @@ export async function POST(req: NextRequest) {
 
   const supabase = await createServerSupabaseClient()
 
-  // hot은 무제한, 자신에게 보내는 것이므로 self-check 없음
   if (type !== 'hot' && type !== 'star') {
     const { data: selfCheck } = await supabase
       .from('participants').select('id')
@@ -30,7 +29,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 자제 시그널: 10분 쿨다운
   if (type === 'warning') {
     const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString()
     const { data: existing } = await supabase
@@ -42,7 +40,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 별점: 30분 쿨다운
   if (type === 'star') {
     const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
     const { data: existing } = await supabase
@@ -54,15 +51,58 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // 보내는 사람의 participant_id 조회
+  const { data: senderParticipant } = await supabase
+    .from('participants').select('id')
+    .eq('room_id', room_id).eq('session_token', sender_session).single()
+  const sender_participant_id = senderParticipant?.id ?? null
+
   const { data, error } = await supabase
     .from('reactions')
-    .insert({ room_id, sender_session, receiver_id, type, value: value ?? null, round: round ?? 1 })
-    .select('id, room_id, receiver_id, type, value, round, created_at')
+    .insert({ room_id, sender_session, sender_participant_id, receiver_id, type, value: value ?? null, round: round ?? 1 })
+    .select('id, room_id, receiver_id, sender_participant_id, type, value, round, created_at')
     .single()
 
   if (error) {
     console.error('[reactions POST] supabase error:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  // 하트일 때: 이 하트로 통했는지 계산 (스테일 리드 없이 서버에서 직접 계산)
+  if (type === 'heart') {
+    const { data: receiverParticipant } = await supabase
+      .from('participants').select('session_token')
+      .eq('id', receiver_id).single()
+
+    let isMutual = false
+    if (receiverParticipant) {
+      // 내가 상대에게 보낸 하트 수 (방금 보낸 것 포함)
+      const { data: mySent } = await supabase
+        .from('reactions').select('id')
+        .eq('room_id', room_id).eq('sender_session', sender_session)
+        .eq('receiver_id', receiver_id).eq('type', 'heart')
+
+      // 상대가 나에게 보낸 하트 수
+      const { data: theirSent } = await supabase
+        .from('reactions').select('id')
+        .eq('room_id', room_id).eq('sender_session', receiverParticipant.session_token)
+        .eq('receiver_id', sender_participant_id).eq('type', 'heart')
+
+      const myCount = mySent?.length ?? 0
+      const theirCount = theirSent?.length ?? 0
+
+      // 상대가 나에게 보낸 횟수 >= 내가 보낸 횟수 → 통했어요
+      isMutual = theirCount > 0 && theirCount >= myCount
+    }
+
+    if (type === 'warning') {
+      const { count } = await supabase
+        .from('reactions').select('id', { count: 'exact' })
+        .eq('room_id', room_id).eq('receiver_id', receiver_id).eq('type', 'warning')
+      return NextResponse.json({ reaction: data, isMutual, warningCount: count ?? 0 })
+    }
+
+    return NextResponse.json({ reaction: data, isMutual })
   }
 
   if (type === 'warning') {
@@ -88,7 +128,7 @@ export async function GET(req: NextRequest) {
   const supabase = await createServerSupabaseClient()
   let query = supabase
     .from('reactions')
-    .select('id, room_id, receiver_id, type, value, round, created_at')
+    .select('id, room_id, receiver_id, sender_participant_id, type, value, round, created_at')
     .eq('room_id', room_id)
 
   if (round) query = query.eq('round', parseInt(round))
