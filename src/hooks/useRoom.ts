@@ -10,8 +10,8 @@ export interface RoomState {
   reactions: Reaction[]
   currentRound: number
   rounds: NotificationRound[]
-  warningCounts: Record<string, number>  // receiver_id → count
-  moodAverages: Record<number, number>   // round → average
+  warningCounts: Record<string, number>
+  moodAverages: Record<number, number>
   notification: { type: 'round'; round: number } | null
 }
 
@@ -30,6 +30,7 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
   const roomData = getRoomData()
   const onRoomEndedRef = useRef(onRoomEnded)
   useEffect(() => { onRoomEndedRef.current = onRoomEnded }, [onRoomEnded])
+  const endedRef = useRef(false)
 
   const fetchInitial = useCallback(async () => {
     const [pRes, rRes, nRes] = await Promise.all([
@@ -46,13 +47,11 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
     const rounds: NotificationRound[] = nData.rounds ?? []
     const currentRound = rounds.length > 0 ? Math.max(...rounds.map((r) => r.round_number)) : 1
 
-    // 자제 시그널 집계
     const warningCounts: Record<string, number> = {}
     reactions.filter(r => r.type === 'warning').forEach(r => {
       warningCounts[r.receiver_id] = (warningCounts[r.receiver_id] ?? 0) + 1
     })
 
-    // 분위기 평균 집계
     const moodAverages: Record<number, number> = {}
     const starsByRound: Record<number, number[]> = {}
     reactions.filter(r => r.type === 'star').forEach(r => {
@@ -74,7 +73,6 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
     }))
   }, [roomId, roomCode])
 
-  // 1시간 타이머
   const startRoundTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current)
     timerRef.current = setInterval(async () => {
@@ -111,7 +109,6 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `room_id=eq.${roomId}` },
         (payload) => {
           const r = payload.new as Reaction & { sender_session: string }
-          // sender_session 제거, sender_participant_id 유지
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const { sender_session: _s, ...safeReaction } = r
           setState(prev => {
@@ -120,7 +117,7 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
             if (safeReaction.type === 'warning') {
               warningCounts[safeReaction.receiver_id] = (warningCounts[safeReaction.receiver_id] ?? 0) + 1
             }
-            const moodAverages = { ...prev.moodAverages }
+            const moodAverages = { ...prev.moodAverages }          
             if (safeReaction.type === 'star' && safeReaction.value) {
               const roundStars = reactions.filter(rx => rx.type === 'star' && rx.round === safeReaction.round)
               const vals = roundStars.map(rx => rx.value!).filter(Boolean)
@@ -129,7 +126,6 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
             return { ...prev, reactions, warningCounts, moodAverages }
           })
 
-          const mySession = getSessionToken()
           const myParticipantId = roomData?.participantId
           if (safeReaction.receiver_id === myParticipantId) {
             if (safeReaction.type === 'heart') {
@@ -143,13 +139,12 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
               })
             }
           }
-          void mySession
         }
       )
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },
         (payload) => {
           if ((payload.new as { status: string }).status === 'ended') {
-            onRoomEndedRef.current?.()
+            if (!endedRef.current) { endedRef.current = true; onRoomEndedRef.current?.() }
           }
         }
       )
@@ -167,16 +162,28 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
       )
       .subscribe()
 
+    const poll = setInterval(async () => {
+      if (endedRef.current) return
+      try {
+        const res = await fetch(`/api/rooms/${roomCode}`)
+        const d = await res.json()
+        if (d.room?.status === 'ended') {
+          if (!endedRef.current) { endedRef.current = true; onRoomEndedRef.current?.() }
+        }
+      } catch { /* ignore */ }
+    }, 5000)
+
     return () => {
       supabase.removeChannel(channel)
       if (timerRef.current) clearInterval(timerRef.current)
+      clearInterval(poll)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId])
 
   const sendReaction = useCallback(async (
     receiver_id: string,
-    type: 'heart' | 'warning' | 'star',
+    type: 'heart' | 'warning' | 'star' | 'hot',
     value?: number
   ) => {
     const sender_session = getSessionToken()
