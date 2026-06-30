@@ -8,6 +8,7 @@ export interface Room {
   host_session: string
   status: RoomStatus
   created_at: string
+  ended_at?: string | null
 }
 
 export interface Participant {
