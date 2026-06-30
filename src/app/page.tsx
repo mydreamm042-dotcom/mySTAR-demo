@@ -7,24 +7,26 @@ export default function Home() {
 
   return (
     <main className="flex flex-col min-h-dvh px-6" style={{ paddingTop: '80px', paddingBottom: '40px' }}>
-      <div className="animate-fade-in" style={{ marginBottom: '60px' }}>
+      {/* 헤더 */}
+      <div className="animate-fade-in" style={{ marginBottom: '60px', textAlign: 'center' }}>
         <div style={{
           width: 72, height: 72,
           borderRadius: 22,
           background: 'linear-gradient(135deg, #ff6b6b, #ee4444)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 36,
-          marginBottom: 24,
           boxShadow: '0 12px 32px rgba(255,107,107,0.4)',
-        }}>⭐</div>
+          margin: '0 auto 24px',
+        }}>👁️</div>
         <h1 style={{ fontSize: 36, fontWeight: 800, lineHeight: 1.15, marginBottom: 10, letterSpacing: '-0.5px' }}>
-          mySTAR
+          noonchi - demo
         </h1>
         <p style={{ color: 'var(--muted2)', fontSize: 15, lineHeight: 1.6 }}>
           모임에서 익명으로<br />마음을 표현해요 ✨
         </p>
       </div>
 
+      {/* 기능 소개 */}
       <div className="animate-fade-in" style={{ marginBottom: 40, animationDelay: '0.1s', opacity: 0 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           {[
@@ -42,6 +44,7 @@ export default function Home() {
         </div>
       </div>
 
+      {/* 버튼 */}
       <div className="animate-slide-up" style={{ animationDelay: '0.2s', opacity: 0 }}>
         <button className="btn btn-primary" style={{ marginBottom: 12, fontSize: 17 }}
           onClick={() => router.push('/create')}>
