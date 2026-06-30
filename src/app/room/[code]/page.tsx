@@ -80,6 +80,19 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     }
   }, [roomData])
 
+  // sendReaction 래핑: 하트 보낼 때 보낸 쪽도 쌍방 확인
+  const handleSend = useCallback(async (
+    receiver_id: string,
+    type: 'heart' | 'warning' | 'star' | 'hot',
+    value?: number
+  ) => {
+    const result = await sendReaction(receiver_id, type, value)
+    if (type === 'heart') {
+      checkMutual()
+    }
+    return result
+  }, [sendReaction, checkMutual])
+
   useEffect(() => {
     const myWarnCount = state.warningCounts[roomData?.participantId ?? ''] ?? 0
     if (myWarnCount >= 1 && !warningStartedRef.current) {
@@ -322,7 +335,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
-      {/* 쌍방 호감 배너 — 화면 중앙 팝업 */}
+      {/* 통했어요 배너 — 화면 중앙 팝업 */}
       {mutualBanner && (
         <div
           onClick={() => setMutualBanner(false)}
@@ -342,10 +355,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
               border: '1.5px solid rgba(255,107,107,0.5)',
             }}
           >
-            <div style={{ fontSize: 52, marginBottom: 12 }}>💖</div>
-            <p style={{ fontSize: 20, fontWeight: 800, color: '#ff6b6b', marginBottom: 8 }}>쌍방 호감!</p>
+            <div style={{ fontSize: 52, marginBottom: 12 }}>💗</div>
+            <p style={{ fontSize: 20, fontWeight: 800, color: '#ff6b6b', marginBottom: 8 }}>통했어요!</p>
             <p style={{ fontSize: 14, color: 'var(--text2)', marginBottom: 24, lineHeight: 1.6 }}>
-              상대방도 나에게<br />호감을 표시했어요!
+              서로의 마음이<br />연결되었어요 💕
             </p>
             <button
               onClick={() => setMutualBanner(false)}
@@ -381,7 +394,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         <NotificationBanner round={state.notification.round} onOpen={() => { dismissNotification(); setShowModal(true) }} onDismiss={dismissNotification} />
       )}
       {showModal && (
-        <InteractionModal participants={state.participants} myParticipantId={roomData.participantId} round={state.currentRound} onSend={sendReaction} onClose={() => setShowModal(false)} />
+        <InteractionModal participants={state.participants} myParticipantId={roomData.participantId} round={state.currentRound} onSend={handleSend} onClose={() => setShowModal(false)} />
       )}
       {showQR && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={() => setShowQR(false)}>
