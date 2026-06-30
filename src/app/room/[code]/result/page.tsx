@@ -33,7 +33,6 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
 
   useEffect(() => {
     if (!roomData) { router.replace('/'); return }
-    // 이전 투표 복원
     const savedVote = localStorage.getItem(`mystar_vote_${roomData.roomId}`)
     if (savedVote) setVoted(savedVote)
     fetchResult()
@@ -89,7 +88,6 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
     )
   }
 
-  // 하트 집계
   const heartCounts: Record<string, number> = {}
   data.reactions.filter(r => r.type === 'heart').forEach(r => {
     heartCounts[r.receiver_id] = (heartCounts[r.receiver_id] ?? 0) + 1
@@ -99,7 +97,6 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
     .map(([id, count]) => ({ participant: data.participants.find(p => p.id === id), count }))
     .filter(x => x.participant)
 
-  // 분위기 타임라인 — star 반응에서 직접 집계
   const uniqueRounds = [...new Set(
     data.reactions.filter(r => r.type === 'star').map(r => r.round)
   )].sort((a, b) => a - b)
@@ -120,7 +117,6 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
   const starReactions = data.reactions.filter(r => r.type === 'star' && r.value)
   const avgMood = starReactions.length > 0 ? starReactions.reduce((a, r) => a + (r.value ?? 0), 0) / starReactions.length : null
 
-  // 타임라인 계산
   const roomStart = data.room ? new Date(data.room.created_at) : null
   const roomEnd = data.room?.ended_at ? new Date(data.room.ended_at) : null
   const durationMs = roomStart && roomEnd ? roomEnd.getTime() - roomStart.getTime() : null
@@ -133,10 +129,9 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
     ...(roomEnd ? [{ time: roomEnd, label: `모임 종료${durationMs ? ' · ' + fmtDuration(durationMs) : ''}`, icon: '🏁', color: 'var(--muted2)' }] : []),
   ].sort((a, b) => a.time.getTime() - b.time.getTime()) : []
 
-  // HOT 5분 버킷
   const BUCKET_MS = 5 * 60 * 1000
   const hotReactions = data.reactions
-    .filter(r => r.type === 'hot')
+    .filter(r => (r.type as string) === 'hot')
     .slice().sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
   const hotBuckets: { label: string; count: number }[] = []
   if (roomStart) {
@@ -189,7 +184,6 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
 
       <div style={{ padding: '0 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-        {/* 모임 타임라인 */}
         {timelineEvents.length > 0 && (
           <div className="card" style={{ padding: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
@@ -211,7 +205,6 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
           </div>
         )}
 
-        {/* HOT 지수 그래프 */}
         <div className="card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
             <span style={{ fontSize: 20 }}>🔥</span>
@@ -244,7 +237,6 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
           )}
         </div>
 
-        {/* 하트 Top 3 */}
         <div className="card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <span style={{ fontSize: 20 }}>💖</span>
@@ -266,7 +258,6 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
           ))}
         </div>
 
-        {/* 분위기 타임라인 */}
         <div className="card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <span style={{ fontSize: 20 }}>⭐</span>
@@ -285,7 +276,6 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
           ))}
         </div>
 
-        {/* 다음에 또 보고 싶은 사람 */}
         <div className="card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <span style={{ fontSize: 20 }}>🙋</span>
