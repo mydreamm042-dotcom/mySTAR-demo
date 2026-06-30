@@ -3,6 +3,7 @@
 import { use, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getRoomData, getSessionToken, clearRoomData } from '@/lib/session'
+import { createClient } from '@/lib/supabase/client'
 import { Room, Participant, Reaction, NotificationRound } from '@/lib/supabase/types'
 
 interface ResultData {
@@ -56,9 +57,24 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
     const savedVote = localStorage.getItem(`mystar_vote_${roomData.roomId}`)
     if (savedVote) setVoted(savedVote)
     fetchResult()
-    // 15초마다 투표 결과 갱신
-    const interval = setInterval(fetchResult, 15000)
-    return () => clearInterval(interval)
+
+    const supabase = createClient()
+    const channel = supabase
+      .channel(`end_votes:${roomData.roomId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'end_votes', filter: `room_id=eq.${roomData.roomId}` },
+        (payload) => {
+          const row = payload.new as { voted_for_id: string }
+          setData(prev => {
+            if (!prev) return prev
+            const updated = { ...prev.endVoteCounts }
+            updated[row.voted_for_id] = (updated[row.voted_for_id] ?? 0) + 1
+            return { ...prev, endVoteCounts: updated }
+          })
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -73,7 +89,6 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
     if (res.ok) {
       setVoted(participantId)
       localStorage.setItem(`mystar_vote_${roomData.roomId}`, participantId)
-      fetchResult()
     }
     setVotingSending(false)
   }
@@ -123,7 +138,6 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
     ...(roomEnd ? [{ time: roomEnd, label: `모임 종료${durationMs ? ' · ' + fmtDuration(durationMs) : ''}`, icon: '🏁', color: 'var(--muted2)' }] : []),
   ].sort((a, b) => a.time.getTime() - b.time.getTime()) : []
 
-  // 10분 단위 HOT 버킷
   const HOT_BUCKET_MS = 10 * 60 * 1000
   const hotReactions = data.reactions
     .filter(r => (r.type as string) === 'hot')
@@ -147,7 +161,6 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
   const maxHot = Math.max(1, ...hotBuckets.map(b => b.count))
   const totalHotTaps = hotReactions.length
 
-  // 30분 단위 만족도 버킷
   const STAR_BUCKET_MS = 30 * 60 * 1000
   const starForGraph = data.reactions
     .filter(r => r.type === 'star' && r.value)
