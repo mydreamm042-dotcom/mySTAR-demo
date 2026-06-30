@@ -31,14 +31,6 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
   const [voted, setVoted] = useState<string | null>(null)
   const [votingSending, setVotingSending] = useState(false)
 
-  useEffect(() => {
-    if (!roomData) { router.replace('/'); return }
-    const savedVote = localStorage.getItem(`mystar_vote_${roomData.roomId}`)
-    if (savedVote) setVoted(savedVote)
-    fetchResult()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   const fetchResult = async () => {
     const [rRes, rxRes, nRes, evRes] = await Promise.all([
       fetch('/api/rooms/' + code),
@@ -58,6 +50,17 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
       endVoteCounts: evData.counts ?? {},
     })
   }
+
+  useEffect(() => {
+    if (!roomData) { router.replace('/'); return }
+    const savedVote = localStorage.getItem(`mystar_vote_${roomData.roomId}`)
+    if (savedVote) setVoted(savedVote)
+    fetchResult()
+    // 15초마다 투표 결과 갱신
+    const interval = setInterval(fetchResult, 15000)
+    return () => clearInterval(interval)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleVote = async (participantId: string) => {
     if (voted || votingSending || !roomData) return
@@ -97,15 +100,6 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
     .map(([id, count]) => ({ participant: data.participants.find(p => p.id === id), count }))
     .filter(x => x.participant)
 
-  const uniqueRounds = [...new Set(
-    data.reactions.filter(r => r.type === 'star').map(r => r.round)
-  )].sort((a, b) => a - b)
-  const moodTimeline = uniqueRounds.map(roundNum => {
-    const stars = data.reactions.filter(r => r.type === 'star' && r.round === roundNum)
-    const avg = stars.reduce((a, r) => a + (r.value ?? 0), 0) / stars.length
-    return { round_number: roundNum, avg }
-  })
-
   const seeAgainTop = Object.entries(data.endVoteCounts)
     .sort(([, a], [, b]) => b - a).slice(0, 5)
     .map(([id, count]) => ({ participant: data.participants.find(p => p.id === id), count }))
@@ -129,8 +123,8 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
     ...(roomEnd ? [{ time: roomEnd, label: `모임 종료${durationMs ? ' · ' + fmtDuration(durationMs) : ''}`, icon: '🏁', color: 'var(--muted2)' }] : []),
   ].sort((a, b) => a.time.getTime() - b.time.getTime()) : []
 
-  // 10분 단위 HOT 버턱 (5시간 = 30개 버턱, overflowX로 스크롤)
-  const BUCKET_MS = 10 * 60 * 1000
+  // 10분 단위 HOT 버킷
+  const HOT_BUCKET_MS = 10 * 60 * 1000
   const hotReactions = data.reactions
     .filter(r => (r.type as string) === 'hot')
     .slice().sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
@@ -138,10 +132,10 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
   if (roomStart) {
     const end = roomEnd ?? (hotReactions.length > 0 ? new Date(hotReactions[hotReactions.length - 1].created_at) : null)
     if (end) {
-      const totalBuckets = Math.max(1, Math.ceil((end.getTime() - roomStart.getTime()) / BUCKET_MS))
+      const totalBuckets = Math.max(1, Math.ceil((end.getTime() - roomStart.getTime()) / HOT_BUCKET_MS))
       for (let i = 0; i < totalBuckets; i++) {
-        const bStart = roomStart.getTime() + i * BUCKET_MS
-        const bEnd = bStart + BUCKET_MS
+        const bStart = roomStart.getTime() + i * HOT_BUCKET_MS
+        const bEnd = bStart + HOT_BUCKET_MS
         const count = hotReactions.filter(r => {
           const t = new Date(r.created_at).getTime()
           return t >= bStart && t < bEnd
@@ -152,6 +146,30 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
   }
   const maxHot = Math.max(1, ...hotBuckets.map(b => b.count))
   const totalHotTaps = hotReactions.length
+
+  // 30분 단위 만족도 버킷
+  const STAR_BUCKET_MS = 30 * 60 * 1000
+  const starForGraph = data.reactions
+    .filter(r => r.type === 'star' && r.value)
+    .slice().sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+  const starBuckets: { label: string; avg: number | null; count: number }[] = []
+  if (roomStart) {
+    const end = roomEnd ?? (starForGraph.length > 0 ? new Date(starForGraph[starForGraph.length - 1].created_at) : null)
+    if (end) {
+      const totalBuckets = Math.max(1, Math.ceil((end.getTime() - roomStart.getTime()) / STAR_BUCKET_MS))
+      for (let i = 0; i < totalBuckets; i++) {
+        const bStart = roomStart.getTime() + i * STAR_BUCKET_MS
+        const bEnd = bStart + STAR_BUCKET_MS
+        const inBucket = starForGraph.filter(r => {
+          const t = new Date(r.created_at).getTime()
+          return t >= bStart && t < bEnd
+        })
+        const avg = inBucket.length > 0 ? inBucket.reduce((a, r) => a + (r.value ?? 0), 0) / inBucket.length : null
+        starBuckets.push({ label: fmt(new Date(bStart)), avg, count: inBucket.length })
+      }
+    }
+  }
+  const maxStarAvg = 5
 
   return (
     <main style={{ display: 'flex', flexDirection: 'column', minHeight: '100dvh', paddingBottom: 40 }}>
@@ -172,7 +190,7 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
           {[
             { e: '👥', v: data.participants.length, l: '참여자', c: 'var(--text)' },
             { e: '💖', v: totalHearts, l: '하트', c: '#ff6b6b' },
-            { e: '⭐', v: avgMood !== null ? avgMood.toFixed(1) : '-', l: '평균 분위기', c: '#fbbf24' },
+            { e: '⭐', v: avgMood !== null ? avgMood.toFixed(1) : '-', l: '평균 만족도', c: '#fbbf24' },
           ].map(s => (
             <div key={s.l} className="card" style={{ padding: '14px 10px', textAlign: 'center' }}>
               <div style={{ fontSize: 22, marginBottom: 4 }}>{s.e}</div>
@@ -239,6 +257,38 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
         </div>
 
         <div className="card" style={{ padding: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
+            <span style={{ fontSize: 20 }}>⭐</span>
+            <h2 style={{ fontSize: 15, fontWeight: 800, color: '#fbbf24' }}>시간별 만족도</h2>
+            <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>30분 단위</span>
+          </div>
+          {starBuckets.length === 0 || starBuckets.every(b => b.avg === null) ? (
+            <p style={{ fontSize: 14, textAlign: 'center', padding: '16px 0', color: 'var(--muted2)' }}>만족도 투표 기록이 없어요</p>
+          ) : (
+            <div style={{ overflowX: 'auto', paddingBottom: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 100, minWidth: starBuckets.length * 48 }}>
+                {starBuckets.map((b, i) => (
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, height: '100%', justifyContent: 'flex-end' }}>
+                    {b.avg !== null && (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#fbbf24', marginBottom: 3 }}>{b.avg.toFixed(1)}</span>
+                    )}
+                    <div style={{
+                      width: '100%', minWidth: 28,
+                      height: b.avg !== null ? Math.max(4, Math.round((b.avg / maxStarAvg) * 72)) : 4,
+                      borderRadius: '4px 4px 0 0',
+                      background: b.avg !== null
+                        ? 'linear-gradient(180deg,#fbbf24,#f59e0b)'
+                        : 'rgba(255,255,255,0.06)',
+                    }} />
+                    <span style={{ fontSize: 9, color: 'var(--muted)', marginTop: 4, whiteSpace: 'nowrap' }}>{b.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <span style={{ fontSize: 20 }}>💖</span>
             <h2 style={{ fontSize: 15, fontWeight: 800, color: '#ff6b6b' }}>오늘의 하트 Top 3</h2>
@@ -255,24 +305,6 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
                 <span style={{ fontSize: 14 }}>💖</span>
                 <span style={{ fontSize: 14, fontWeight: 800, color: '#ff6b6b' }}>{count}</span>
               </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="card" style={{ padding: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-            <span style={{ fontSize: 20 }}>⭐</span>
-            <h2 style={{ fontSize: 15, fontWeight: 800, color: '#fbbf24' }}>분위기 타임라인</h2>
-          </div>
-          {moodTimeline.length === 0 ? (
-            <p style={{ fontSize: 14, textAlign: 'center', padding: '16px 0', color: 'var(--muted2)' }}>별점 투표 기록이 없어요</p>
-          ) : moodTimeline.map(round => (
-            <div key={round.round_number} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-              <span style={{ fontSize: 12, width: 56, flexShrink: 0, color: 'var(--muted2)', fontWeight: 600 }}>Round {round.round_number}</span>
-              <div style={{ flex: 1, height: 8, borderRadius: 4, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
-                <div style={{ height: '100%', borderRadius: 4, width: (round.avg / 5 * 100) + '%', background: 'linear-gradient(90deg,#f59e0b,#fbbf24)' }} />
-              </div>
-              <span style={{ fontSize: 14, fontWeight: 800, width: 36, textAlign: 'right', color: '#fbbf24' }}>{round.avg.toFixed(1)}</span>
             </div>
           ))}
         </div>
