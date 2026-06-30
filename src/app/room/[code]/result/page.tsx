@@ -129,7 +129,8 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
     ...(roomEnd ? [{ time: roomEnd, label: `모임 종료${durationMs ? ' · ' + fmtDuration(durationMs) : ''}`, icon: '🏁', color: 'var(--muted2)' }] : []),
   ].sort((a, b) => a.time.getTime() - b.time.getTime()) : []
 
-  const BUCKET_MS = 5 * 60 * 1000
+  // 10분 단위 HOT 버턱 (5시간 = 30개 버턱, overflowX로 스크롤)
+  const BUCKET_MS = 10 * 60 * 1000
   const hotReactions = data.reactions
     .filter(r => (r.type as string) === 'hot')
     .slice().sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
@@ -209,7 +210,7 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
             <span style={{ fontSize: 20 }}>🔥</span>
             <h2 style={{ fontSize: 15, fontWeight: 800, color: '#f97316' }}>시간별 HOT 지수</h2>
-            <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>5분 단위 · 총 {totalHotTaps}회</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>10분 단위 · 총 {totalHotTaps}회</span>
           </div>
           {hotBuckets.length === 0 ? (
             <p style={{ fontSize: 14, textAlign: 'center', padding: '16px 0', color: 'var(--muted2)' }}>HOT 기록이 없어요 🥲</p>
