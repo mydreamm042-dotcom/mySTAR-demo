@@ -96,7 +96,7 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
   // Realtime 구독이 놓친 이벤트를 주기적으로 재조회해 복구한다
   // (예: 참여자가 나갔다 들어왔을 때 그 사이의 소켓 재연결 타이밍에 이벤트가 누락될 수 있음)
   useEffect(() => {
-    const reconcileTimer = setInterval(() => { fetchInitial() }, 15_000)
+    const reconcileTimer = setInterval(() => { fetchInitial() }, 3_000)
     return () => clearInterval(reconcileTimer)
   }, [fetchInitial])
 

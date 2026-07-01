@@ -16,7 +16,6 @@ interface ResultData {
 
 const BUCKET_MS = 30 * 60 * 1000
 const HOT_BUCKET_MS = 10 * 60 * 1000
-const HOT_SAMPLES_PER_BUCKET = 10
 
 function makeBuckets(reactions: Reaction[], type: string) {
   const filtered = reactions.filter(r => r.type === type && r.created_at)
@@ -44,9 +43,9 @@ function makeBuckets(reactions: Reaction[], type: string) {
   return buckets
 }
 
-// hot 탭 "횟수"가 아니라, 구간 동안 실제로 유지된 HOT 지수(%)를 1분 간격 샘플링해 평균낸다.
+// hot 탭 "횟수"가 아니라, 각 탭이 발생한 순간의 HOT 지수(%)를 구간별로 평균낸다.
 // 버킷은 첫 탭 시각부터 시작하고(벽시계 10분 단위로 맞추지 않음), 방 종료 시각(없으면 지금)에서 잘라
-// 실제 활동이 없던 구간이 평균을 희석시키지 않도록 한다. 마지막 구간이 10분보다 짧으면 그 짧은 구간만 평균낸다.
+// 실제 활동이 없던 시간이 평균에 섞이지 않도록 한다.
 function makeHotBuckets(reactions: Reaction[], participantCount: number, roomEndedAt: number | null) {
   const hotReactions = reactions.filter(r => r.type === 'hot' && r.created_at)
   if (hotReactions.length === 0) return []
@@ -58,18 +57,15 @@ function makeHotBuckets(reactions: Reaction[], participantCount: number, roomEnd
   for (let i = 0; i < count; i++) {
     const bStart = minT + i * HOT_BUCKET_MS
     const bEnd = Math.min(bStart + HOT_BUCKET_MS, maxT)
-    // 버킷 길이와 무관하게 항상 고정된 개수(10개)의 지점을 균등 샘플링한다.
-    // 버킷이 10분보다 훨씬 짧을 때(예: 짧은 테스트 직후 방 종료) 고정 시간 간격으로
-    // 샘플링하면 표본이 1개만 잡혀 실제 활동을 놓칠 수 있기 때문.
-    const step = (bEnd - bStart) / HOT_SAMPLES_PER_BUCKET
-    let sum = 0
-    for (let s = 0; s < HOT_SAMPLES_PER_BUCKET; s++) {
-      const t = bStart + step * (s + 0.5)
-      sum += calcHotIndex(hotReactions, participantCount, t)
-    }
+    const valuesInBucket = times
+      .filter(t => t >= bStart && t < bEnd)
+      .map(t => calcHotIndex(hotReactions, participantCount, t))
+    const avg = valuesInBucket.length > 0
+      ? valuesInBucket.reduce((a, b) => a + b, 0) / valuesInBucket.length
+      : 0
     const d = new Date(bStart)
     const label = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
-    buckets.push({ label, value: Math.round(sum / HOT_SAMPLES_PER_BUCKET) })
+    buckets.push({ label, value: Math.round(avg) })
   }
   return buckets
 }
