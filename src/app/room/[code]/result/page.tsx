@@ -43,9 +43,10 @@ function makeBuckets(reactions: Reaction[], type: string) {
   return buckets
 }
 
-// hot 탭 "횟수"가 아니라, 각 탭이 발생한 순간의 HOT 지수(%)를 구간별로 평균낸다.
+// hot 탭 "횟수"가 아니라, 구간 동안 도달한 HOT 지수(%)의 최고치를 보여준다.
+// (탭을 여러 번 눌러 서서히 올리는 구조라 평균을 내면 상승 과정 때문에 항상 최고치보다 낮게 나옴)
 // 버킷은 첫 탭 시각부터 시작하고(벽시계 10분 단위로 맞추지 않음), 방 종료 시각(없으면 지금)에서 잘라
-// 실제 활동이 없던 시간이 평균에 섞이지 않도록 한다.
+// 실제 활동이 없던 시간은 집계에서 제외한다.
 function makeHotBuckets(reactions: Reaction[], roomEndedAt: number | null) {
   const hotReactions = reactions.filter(r => r.type === 'hot' && r.created_at)
   if (hotReactions.length === 0) return []
@@ -60,12 +61,10 @@ function makeHotBuckets(reactions: Reaction[], roomEndedAt: number | null) {
     const valuesInBucket = times
       .filter(t => t >= bStart && t < bEnd)
       .map(t => calcHotIndex(hotReactions, t))
-    const avg = valuesInBucket.length > 0
-      ? valuesInBucket.reduce((a, b) => a + b, 0) / valuesInBucket.length
-      : 0
+    const peak = valuesInBucket.length > 0 ? Math.max(...valuesInBucket) : 0
     const d = new Date(bStart)
     const label = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
-    buckets.push({ label, value: Math.round(avg) })
+    buckets.push({ label, value: peak })
   }
   return buckets
 }
