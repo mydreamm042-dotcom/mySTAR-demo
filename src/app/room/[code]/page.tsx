@@ -198,6 +198,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const elapsed = lastTapTime > 0 ? Date.now() - lastTapTime : Infinity
   const isDecaying = elapsed >= HOLD_MS && elapsed < TOTAL_MS
 
+  const isBlazing = hotIndex >= 100
   const flameLevel = hotIndex >= 80 ? 4 : hotIndex >= 60 ? 3 : hotIndex >= 40 ? 2 : hotIndex >= 20 ? 1 : 0
   const flickerKf = flameLevel >= 3 ? 'flame-intense' : 'flame-flicker'
   const flickerDur = flameLevel >= 4 ? '0.45s' : flameLevel === 3 ? '0.6s' : flameLevel === 2 ? '0.8s' : '1.1s'
@@ -278,13 +279,17 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           </div>
           <div className="card" style={{
             padding: '10px 8px 8px', textAlign: 'center',
-            animation: flameLevel >= 1
-              ? `fire-pulse ${flameLevel >= 3 ? '0.7s' : flameLevel === 2 ? '1s' : '1.5s'} ease-in-out infinite`
-              : 'none',
-            borderColor: flameLevel >= 2 ? `rgba(249,115,22,${flameLevel * 0.12})` : undefined,
+            animation: isBlazing
+              ? 'fire-pulse 0.4s ease-in-out infinite'
+              : flameLevel >= 1
+                ? `fire-pulse ${flameLevel >= 3 ? '0.7s' : flameLevel === 2 ? '1s' : '1.5s'} ease-in-out infinite`
+                : 'none',
+            borderColor: isBlazing ? 'rgba(239,68,68,0.6)' : flameLevel >= 2 ? `rgba(249,115,22,${flameLevel * 0.12})` : undefined,
           }}>
             <div style={{ height: 20, marginBottom: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1 }}>
-              {Array.from({ length: Math.max(1, flameLevel) }).map((_, i) => (
+              {isBlazing ? (
+                <span style={{ fontSize: 28, display: 'inline-block', animation: 'flame-blaze 0.35s ease-in-out infinite' }}>🔥</span>
+              ) : Array.from({ length: Math.max(1, flameLevel) }).map((_, i) => (
                 <span key={i} style={{
                   fontSize: flameLevel >= 3 ? 14 : 16,
                   display: 'inline-block',
@@ -293,7 +298,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
                 }}>🔥</span>
               ))}
             </div>
-            <div style={{ fontSize: 17, fontWeight: 800, color: hotColor, lineHeight: 1 }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: isBlazing ? '#ef4444' : hotColor, lineHeight: 1 }}>
               {hotIndex}<span style={{ fontSize: 10 }}>%</span>
             </div>
             {isDecaying && (
