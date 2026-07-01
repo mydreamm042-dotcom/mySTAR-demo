@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, use, useRef, useCallback } from 'react'
+import { useEffect, useState, use, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { getRoomData, getSessionToken, clearRoomData } from '@/lib/session'
 import { useRoom } from '@/hooks/useRoom'
@@ -40,7 +40,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const { code } = use(params)
   const router = useRouter()
   const roomData = getRoomData()
-
   const [showModal, setShowModal] = useState(false)
   const [showQR, setShowQR] = useState(false)
   const [endingRoom, setEndingRoom] = useState(false)
@@ -49,15 +48,17 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [hotPressed, setHotPressed] = useState(false)
   const [tick, setTick] = useState(0)
   const hotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
   const [warningCountdown, setWarningCountdown] = useState<number | null>(null)
   const warningStartedRef = useRef(false)
   const [mutualBanner, setMutualBanner] = useState(false)
+  const [localHotTimes, setLocalHotTimes] = useState<number[]>([])
+  const mutualTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (!roomData || roomData.roomCode !== code) router.replace(`/join?code=${code}`)
   }, [code, roomData, router])
 
+  // 탭 닫거나 페이지 베어날 때 자동 퇴장
   useEffect(() => {
     if (!roomData) return
     const handleUnload = () => {
@@ -81,26 +82,28 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     () => router.push(`/room/${code}/result`),
   )
 
+  const showMutualBanner = useCallback(() => {
+    setMutualBanner(true)
+    if (mutualTimerRef.current) clearTimeout(mutualTimerRef.current)
+    mutualTimerRef.current = setTimeout(() => setMutualBanner(false), 4000)
+  }, [])
+
   const checkMutualOnReceive = useCallback(async (senderParticipantId: string) => {
     if (!roomData) return
     const res = await fetch(
-      `/api/reactions/mutual?room_id=${roomData.roomId}&my_session=${getSessionToken()}&my_participant_id=${roomData.participantId}&just_received_from=${senderParticipantId}`
+      `/api/reactions/mutual?room_id=${roomData.roomId}&just_received_from=${senderParticipantId}&my_session=${getSessionToken()}`
     )
     const d = await res.json()
-    if (d.isNewMutual) setMutualBanner(true)
-  }, [roomData])
+    if (d.isNewMutual) showMutualBanner()
+  }, [roomData, showMutualBanner])
 
-  const handleSend = useCallback(async (
-    receiver_id: string,
-    type: 'heart' | 'warning' | 'star' | 'hot',
-    value?: number
-  ) => {
-    const result = await sendReaction(receiver_id, type, value)
+  const handleSend = useCallback(async (receiver_id: string, type: string, value?: number) => {
+    const result = await sendReaction(receiver_id, type as 'heart' | 'warning' | 'star', value)
     if (type === 'heart' && result.isMutual) {
-      setMutualBanner(true)
+      showMutualBanner()
     }
     return result
-  }, [sendReaction])
+  }, [sendReaction, showMutualBanner])
 
   useEffect(() => {
     const myWarnCount = state.warningCounts[roomData?.participantId ?? ''] ?? 0
@@ -122,21 +125,38 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   useEffect(() => {
     if (state.reactions.length > prevReactionCount && prevReactionCount > 0) {
-      const latest = state.reactions[state.reactions.length - 1]
-      if (latest?.receiver_id === roomData?.participantId) {
+      const latest = state.reactions[0]
+      if (!latest) return
+      if (latest.receiver_id === roomData?.participantId) {
         if (latest.type === 'heart') {
           showToast({ emoji: '💖', message: '누군가 하트를 보냈어요!', color: '#ff6b6b' })
           if (latest.sender_participant_id) {
             checkMutualOnReceive(latest.sender_participant_id)
           }
         } else if (latest.type === 'warning') {
-          showToast({ emoji: '🤫', message: '잠깐, 오늘 좀 과한 것 같아요', color: '#f59e0b' })
+          const count = state.warningCounts[roomData?.participantId ?? ''] ?? 0
+          if (count >= 3) showToast({ emoji: '🤫', message: '잠긄, 오늘 좀 과한 것 같아요', color: '#f59e0b' })
         }
       }
     }
     setPrevReactionCount(state.reactions.length)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.reactions.length])
+
+  const handleLeave = useCallback(async () => {
+    if (!roomData) return
+    if (!confirm('방을 나갈까요?')) return
+    await fetch('/api/participants', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        participant_id: roomData.participantId,
+        session_token: getSessionToken(),
+      }),
+    })
+    clearRoomData()
+    router.replace('/')
+  }, [roomData, router])
 
   const handleEndRoom = async () => {
     if (!confirm('방을 종료할까요?')) return
@@ -149,22 +169,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     router.push(`/room/${code}/result`)
   }
 
-  const handleLeave = async () => {
-    if (!confirm('방을 나갈까요?')) return
-    if (roomData) {
-      await fetch('/api/participants', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          participant_id: roomData.participantId,
-          session_token: getSessionToken(),
-        }),
-      })
-    }
-    clearRoomData()
-    router.replace('/')
-  }
-
   const handleHot = () => {
     setHotPressed(true)
     if (hotTimerRef.current) clearTimeout(hotTimerRef.current)
@@ -172,6 +176,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     const id = Math.random().toString(36).slice(2)
     setHotFloaters(prev => [...prev, id])
     setTimeout(() => setHotFloaters(prev => prev.filter(x => x !== id)), 900)
+    // 낙관적 업데이트: 탭 즉시 로컈에 반영, 3초 후 Realtime 실데이터로 교체됨
+    const now = Date.now()
+    setLocalHotTimes(prev => [...prev, now])
+    setTimeout(() => setLocalHotTimes(prev => prev.filter(t => t !== now)), 3000)
     if (roomData) {
       sendReaction(roomData.participantId, 'hot').catch(err => {
         console.error('[HOT] sendReaction failed:', err)
@@ -188,8 +196,9 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const myHearts = state.reactions.filter(r => r.receiver_id === roomData.participantId && r.type === 'heart').length
   const totalReactions = state.reactions.filter(r => r.type !== 'hot').length
   const serverHotReactions = state.reactions.filter(r => r.type === 'hot')
+  const localFakeReactions = localHotTimes.map(t => ({ created_at: new Date(t).toISOString() }))
   void tick
-  const hotIndex = calcHotIndex(serverHotReactions, state.participants.length)
+  const hotIndex = calcHotIndex([...serverHotReactions, ...localFakeReactions], state.participants.length)
 
   const serverTimes = serverHotReactions.map(r => new Date(r.created_at).getTime())
   const lastTapTime = serverTimes.length > 0 ? Math.max(...serverTimes) : 0
@@ -201,16 +210,37 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const flickerDur = flameLevel >= 4 ? '0.45s' : flameLevel === 3 ? '0.6s' : flameLevel === 2 ? '0.8s' : '1.1s'
   const hotColor = hotIndex >= 60 ? '#ef4444' : '#f97316'
   const warningVisible = warningCountdown !== null
-  const warningBottom = 100
 
   return (
     <main className="flex flex-col min-h-dvh" style={{ paddingBottom: 100 }}>
+      {/* 통했어요 배너 */}
+      {mutualBanner && (
+        <div
+          onClick={() => setMutualBanner(false)}
+          style={{
+            position: 'fixed', top: 0, left: '50%', transform: 'translateX(-50%)',
+            width: '100%', maxWidth: 448,
+            zIndex: 100,
+            padding: '16px 20px',
+            background: 'linear-gradient(135deg, #ff6b6b, #c084fc)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+            boxShadow: '0 4px 24px rgba(255,107,107,0.5)',
+            cursor: 'pointer',
+          }}
+        >
+          <span style={{ fontSize: 28 }}>💞</span>
+          <span style={{ fontSize: 20, fontWeight: 800, color: '#fff', letterSpacing: '-0.5px' }}>통했어요!</span>
+          <span style={{ fontSize: 28 }}>💞</span>
+        </div>
+      )}
 
+      {/* 상단 헤더 */}
       <div style={{ padding: '52px 20px 16px', background: 'linear-gradient(180deg,rgba(255,107,107,0.06) 0%,transparent 100%)' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <span className="badge" style={{ background: 'rgba(255,107,107,0.15)', color: 'var(--accent)', border: '1px solid rgba(255,107,107,0.25)' }}>🔴 LIVE</span>
+              <span className="badge" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--muted2)' }}>ROUND {state.currentRound}</span>
             </div>
             <h1 style={{ fontSize: 24, fontWeight: 800, lineHeight: 1.2 }}>{roomData.roomName}</h1>
           </div>
@@ -238,6 +268,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
+      {/* 스탯 카드 */}
       <div style={{ padding: '0 20px', marginBottom: 16 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
           <div className="card" style={{ padding: '14px 8px', textAlign: 'center' }}>
@@ -290,6 +321,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
+      {/* HOT 버튼 */}
       <div style={{ padding: '0 20px', marginBottom: 16 }}>
         <div style={{ position: 'relative', display: 'flex', justifyContent: 'center' }}>
           {hotFloaters.map(id => (
@@ -309,10 +341,11 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
+      {/* 참여자 목록 */}
       <div style={{ padding: '0 20px', flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted2)' }}>참여자 목록</p>
-          <p style={{ fontSize: 12, color: 'var(--muted)' }}>총 {totalReactions}개 리액션</p>
+          <p style={{ fontSize: 12, color: 'var(--muted)' }}>영 {totalReactions}개 리액션</p>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {state.participants.map((p, idx) => {
@@ -344,32 +377,28 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
-      {mutualBanner && (
-        <div onClick={() => setMutualBanner(false)}
-          style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)', padding: '0 32px' }}>
-          <div className="card animate-fade-in" onClick={e => e.stopPropagation()}
-            style={{ width: '100%', maxWidth: 320, padding: '32px 24px', textAlign: 'center', border: '1.5px solid rgba(255,107,107,0.5)' }}>
-            <div style={{ fontSize: 52, marginBottom: 12 }}>💗</div>
-            <p style={{ fontSize: 20, fontWeight: 800, color: '#ff6b6b', marginBottom: 8 }}>통했어요!</p>
-            <p style={{ fontSize: 14, color: 'var(--text2)', marginBottom: 24, lineHeight: 1.6 }}>서로의 마음이<br />연결되었어요 💕</p>
-            <button onClick={() => setMutualBanner(false)} className="btn btn-primary" style={{ fontSize: 15, minHeight: 48 }}>확인 ✕</button>
-          </div>
-        </div>
-      )}
-
+      {/* 경고 카운트다운 */}
       {warningVisible && (
-        <div style={{ position: 'fixed', bottom: warningBottom, left: '50%', transform: 'translateX(-50%)', width: 'calc(100% - 40px)', maxWidth: 408, zIndex: 40, background: 'rgba(245,158,11,0.15)', border: '1.5px solid rgba(245,158,11,0.5)', borderRadius: 16, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{
+          position: 'fixed', bottom: 100, left: '50%', transform: 'translateX(-50%)',
+          width: 'calc(100% - 40px)', maxWidth: 408, zIndex: 40,
+          background: 'rgba(245,158,11,0.15)', border: '1.5px solid rgba(245,158,11,0.5)',
+          borderRadius: 16, padding: '14px 20px',
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
           <span style={{ fontSize: 24 }}>🤫</span>
-          <p style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b', flex: 1 }}>우리 10분만 쉼어요</p>
+          <p style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b', flex: 1 }}>우리 10분만 쉐어요</p>
           <span style={{ fontSize: 22, fontWeight: 800, color: '#f59e0b', fontVariantNumeric: 'tabular-nums' }}>{fmtCd(warningCountdown!)}</span>
         </div>
       )}
 
+      {/* 하단 고정 버튼 */}
       <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 448, padding: '16px 20px 32px', background: 'linear-gradient(0deg,var(--bg) 60%,transparent)' }}>
         <button className="btn btn-primary" onClick={() => setShowModal(true)}
           style={{ fontSize: 18, minHeight: 60, boxShadow: '0 12px 32px rgba(255,107,107,0.5)' }}>✨ 지금 표현하기</button>
       </div>
 
+      {/* 알림 배너 */}
       {state.notification && (
         <NotificationBanner round={state.notification.round} onOpen={() => { dismissNotification(); setShowModal(true) }} onDismiss={dismissNotification} />
       )}
