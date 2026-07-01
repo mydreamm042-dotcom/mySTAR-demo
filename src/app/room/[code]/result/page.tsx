@@ -12,20 +12,21 @@ interface ResultData {
   endVoteCounts: Record<string, number>
 }
 
-const BUCKET_MS = 30 * 60 * 1000
+const STAR_BUCKET_MS = 30 * 60 * 1000
+const HOT_BUCKET_MS = 10 * 60 * 1000
 
-function makeBuckets(reactions: Reaction[], type: string) {
+function makeBuckets(reactions: Reaction[], type: string, bucketMs: number) {
   const filtered = reactions.filter(r => r.type === type && r.created_at)
   if (filtered.length === 0) return []
   const times = filtered.map(r => new Date(r.created_at!).getTime())
   const minT = Math.min(...times)
   const maxT = Math.max(...times)
-  const base = Math.floor(minT / BUCKET_MS) * BUCKET_MS
-  const count = Math.floor((maxT - base) / BUCKET_MS) + 1
+  const base = Math.floor(minT / bucketMs) * bucketMs
+  const count = Math.floor((maxT - base) / bucketMs) + 1
   const buckets: { label: string; value: number }[] = []
   for (let i = 0; i < count; i++) {
-    const bStart = base + i * BUCKET_MS
-    const bEnd = bStart + BUCKET_MS
+    const bStart = base + i * bucketMs
+    const bEnd = bStart + bucketMs
     const inBucket = filtered.filter(r => {
       const t = new Date(r.created_at!).getTime()
       return t >= bStart && t < bEnd
@@ -133,8 +134,8 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
     ? starReactions.reduce((a, r) => a + (r.value ?? 0), 0) / starReactions.length
     : null
 
-  const starBuckets = makeBuckets(data.reactions, 'star')
-  const hotBuckets = makeBuckets(data.reactions, 'hot')
+  const starBuckets = makeBuckets(data.reactions, 'star', STAR_BUCKET_MS)
+  const hotBuckets = makeBuckets(data.reactions, 'hot', HOT_BUCKET_MS)
   const maxStarVal = starBuckets.length > 0 ? Math.max(...starBuckets.map(b => b.value), 5) : 5
   const maxHotVal = hotBuckets.length > 0 ? Math.max(...hotBuckets.map(b => b.value), 1) : 1
 
@@ -199,6 +200,7 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <span style={{ fontSize: 20 }}>⭐</span>
             <h2 style={{ fontSize: 15, fontWeight: 800, color: '#fbbf24' }}>시간별 만족도</h2>
+            <span style={{ fontSize: 11, color: 'var(--muted2)', marginLeft: 'auto' }}>30분 단위</span>
           </div>
           {starBuckets.length === 0 ? (
             <p style={{ fontSize: 14, textAlign: 'center', padding: '16px 0', color: 'var(--muted2)' }}>투표 기록이 없어요</p>
@@ -223,6 +225,7 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <span style={{ fontSize: 20 }}>🔥</span>
             <h2 style={{ fontSize: 15, fontWeight: 800, color: '#f97316' }}>시간별 HOT 지수</h2>
+            <span style={{ fontSize: 11, color: 'var(--muted2)', marginLeft: 'auto' }}>10분 단위</span>
           </div>
           {hotBuckets.length === 0 ? (
             <p style={{ fontSize: 14, textAlign: 'center', padding: '16px 0', color: 'var(--muted2)' }}>HOT 기록이 없어요</p>
