@@ -62,7 +62,6 @@ export default function InteractionModal({ participants, myParticipantId, round,
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', flexDirection: 'column', background: 'rgba(0,0,0,0.95)', backdropFilter: 'blur(16px)' }}>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '56px 24px 24px', overflow: 'hidden' }}>
-        {/* 헤더 */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 32 }}>
           <div>
             <span className="badge" style={{ background: 'rgba(255,107,107,0.15)', color: 'var(--accent)', marginBottom: 8, display: 'inline-flex' }}>
@@ -80,8 +79,8 @@ export default function InteractionModal({ participants, myParticipantId, round,
           <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {[
               { m: 'heart' as Mode, emoji: '💖', label: '호감 표현', desc: '누군가에게 하트를 익명으로', color: '#ff6b6b', bg: 'rgba(255,107,107,0.1)', border: 'rgba(255,107,107,0.25)' },
-              { m: 'warning' as Mode, emoji: '🤫', label: '자제 시그널', desc: '살짝 과하다 싶을 때 익명으로 (10분에 1회)', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.25)' },
-              { m: 'star' as Mode, emoji: '⭐', label: '만족도 별점', desc: '지금 이 자리, 몇 점짜리? (30분에 1회)', color: 'var(--purple-light)', bg: 'rgba(124,92,191,0.1)', border: 'rgba(124,92,191,0.25)' },
+              { m: 'warning' as Mode, emoji: '🤫', label: '자제 시그널', desc: '살짝 과하다 싶을 때 익명으로', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.25)' },
+              { m: 'star' as Mode, emoji: '⭐', label: '만족도 별점', desc: '지금 이 자리, 몇 점짜리?', color: 'var(--purple-light)', bg: 'rgba(124,92,191,0.1)', border: 'rgba(124,92,191,0.25)' },
             ].map(({ m, emoji, label, desc, color, bg, border }) => (
               <button key={m} onClick={() => setMode(m)}
                 style={{
@@ -109,9 +108,7 @@ export default function InteractionModal({ participants, myParticipantId, round,
             <p style={{ fontSize: 20, fontWeight: 800, marginBottom: 4 }}>
               {mode === 'heart' ? '💖 하트 보낼 사람' : '🤫 시그널 보낼 사람'}
             </p>
-            <p style={{ fontSize: 13, color: 'var(--muted2)', marginBottom: 20 }}>
-              {mode === 'heart' ? '익명으로 전달돼요' : '익명으로 전달돼요 (10분에 1회)'}
-            </p>
+            <p style={{ fontSize: 13, color: 'var(--muted2)', marginBottom: 20 }}>익명으로 전달돼요</p>
 
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 8 }}>
               {others.length === 0 ? (
@@ -156,7 +153,7 @@ export default function InteractionModal({ participants, myParticipantId, round,
               ← 뒤로
             </button>
             <p style={{ fontSize: 20, fontWeight: 800, marginBottom: 6 }}>⭐ 지금 만족도 몇 점?</p>
-            <p style={{ fontSize: 13, color: 'var(--muted2)', marginBottom: 40 }}>전체 평균이 실시간으로 업데이트돼요 (30분에 1회)</p>
+            <p style={{ fontSize: 13, color: 'var(--muted2)', marginBottom: 40 }}>전체 평균이 실시간으로 업데이트돼요</p>
 
             <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginBottom: 20 }}>
               {[1,2,3,4,5].map(n => (
