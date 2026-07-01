@@ -136,7 +136,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const totalReactions = state.reactions.filter(r => r.type !== 'hot').length
   const serverHotReactions = state.reactions.filter(r => r.type === 'hot')
   void tick
-  const hotIndex = calcHotIndex(serverHotReactions, state.participants.length)
+  const hotIndex = calcHotIndex(serverHotReactions)
 
   const serverTimes = serverHotReactions.map(r => new Date(r.created_at).getTime())
   const lastTapTime = serverTimes.length > 0 ? Math.max(...serverTimes) : 0

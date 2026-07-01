@@ -46,7 +46,7 @@ function makeBuckets(reactions: Reaction[], type: string) {
 // hot 탭 "횟수"가 아니라, 각 탭이 발생한 순간의 HOT 지수(%)를 구간별로 평균낸다.
 // 버킷은 첫 탭 시각부터 시작하고(벽시계 10분 단위로 맞추지 않음), 방 종료 시각(없으면 지금)에서 잘라
 // 실제 활동이 없던 시간이 평균에 섞이지 않도록 한다.
-function makeHotBuckets(reactions: Reaction[], participantCount: number, roomEndedAt: number | null) {
+function makeHotBuckets(reactions: Reaction[], roomEndedAt: number | null) {
   const hotReactions = reactions.filter(r => r.type === 'hot' && r.created_at)
   if (hotReactions.length === 0) return []
   const times = hotReactions.map(r => new Date(r.created_at!).getTime())
@@ -59,7 +59,7 @@ function makeHotBuckets(reactions: Reaction[], participantCount: number, roomEnd
     const bEnd = Math.min(bStart + HOT_BUCKET_MS, maxT)
     const valuesInBucket = times
       .filter(t => t >= bStart && t < bEnd)
-      .map(t => calcHotIndex(hotReactions, participantCount, t))
+      .map(t => calcHotIndex(hotReactions, t))
     const avg = valuesInBucket.length > 0
       ? valuesInBucket.reduce((a, b) => a + b, 0) / valuesInBucket.length
       : 0
@@ -162,7 +162,7 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
 
   const starBuckets = makeBuckets(data.reactions, 'star')
   const roomEndedAt = data.room?.ended_at ? new Date(data.room.ended_at).getTime() : null
-  const hotBuckets = makeHotBuckets(data.reactions, data.participants.length, roomEndedAt)
+  const hotBuckets = makeHotBuckets(data.reactions, roomEndedAt)
   const maxStarVal = starBuckets.length > 0 ? Math.max(...starBuckets.map(b => b.value), 5) : 5
 
   const seeAgainTop = Object.entries(data.endVoteCounts)
