@@ -125,8 +125,10 @@ export default function InteractionModal({ participants, myParticipantId, round,
                       border: `1.5px solid ${sel ? ac : 'var(--border)'}`,
                       cursor: 'pointer',
                     }}>
-                    <div style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--card2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>👤</div>
-                    <span style={{ flex: 1, textAlign: 'left', fontSize: 15, fontWeight: 600, color: sel ? ac : 'var(--text)' }}>누군가</span>
+                    <div style={{ width: 40, height: 40, borderRadius: 12, background: sel ? `rgba(${mode === 'heart' ? '255,107,107' : '245,158,11'},0.2)` : 'var(--card2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700, color: sel ? ac : 'var(--text2)' }}>
+                      {p.nickname[0]?.toUpperCase() ?? '?'}
+                    </div>
+                    <span style={{ flex: 1, textAlign: 'left', fontSize: 15, fontWeight: 600, color: sel ? ac : 'var(--text)' }}>{p.nickname}</span>
                     {sel && <span style={{ fontSize: 20 }}>{mode === 'heart' ? '💖' : '🤫'}</span>}
                   </button>
                 )
