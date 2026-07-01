@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Participant } from '@/lib/supabase/types'
 
 interface Props {
@@ -15,12 +15,37 @@ type Mode = 'select' | 'heart' | 'warning' | 'star'
 
 const MOOD_LABELS = ['', '😴 좀 쳐지네요', '😐 평범한 편', '😊 괜찮아요', '😄 꽤 좋아요!', '🔥 완전 핫해요!!']
 
+function parseCooldownMinutes(error: string): number | null {
+  const m = error.match(/(\d+)\s*분 후 가능/)
+  return m ? parseInt(m[1]) : null
+}
+
+function fmtMs(ms: number) {
+  const totalSec = Math.max(0, Math.ceil(ms / 1000))
+  const m = Math.floor(totalSec / 60)
+  const s = totalSec % 60
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
 export default function InteractionModal({ participants, myParticipantId, round, onSend, onClose }: Props) {
   const [mode, setMode] = useState<Mode>('select')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [starValue, setStarValue] = useState(0)
   const [sending, setSending] = useState(false)
-  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [result, setResult] = useState<{ success: boolean; message: string; cooldownMs?: number } | null>(null)
+  const [remainMs, setRemainMs] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (result?.cooldownMs == null) return
+    setRemainMs(result.cooldownMs)
+    const interval = setInterval(() => {
+      setRemainMs(prev => {
+        if (prev == null || prev <= 1000) { clearInterval(interval); return 0 }
+        return prev - 1000
+      })
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [result])
 
   const others = participants.filter(p => p.id !== myParticipantId)
 
@@ -34,7 +59,12 @@ export default function InteractionModal({ participants, myParticipantId, round,
         : selectedId!
       const res = await onSend(receiverId, mode === 'star' ? 'star' : mode as 'heart' | 'warning', mode === 'star' ? starValue : undefined)
       if (res?.error) {
-        setResult({ success: false, message: res.error })
+        const mins = parseCooldownMinutes(res.error)
+        setResult({
+          success: false,
+          message: res.error,
+          cooldownMs: mins != null ? mins * 60 * 1000 : undefined,
+        })
       } else {
         const msgs: Record<Mode, string> = {
           select: '',
@@ -48,12 +78,31 @@ export default function InteractionModal({ participants, myParticipantId, round,
   }
 
   if (result) {
+    const canRetry = result.cooldownMs != null && remainMs === 0
     return (
       <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 24px', background: 'rgba(0,0,0,0.9)', backdropFilter: 'blur(12px)' }}>
         <div className="card animate-bounce-in" style={{ width: '100%', padding: 32, textAlign: 'center' }}>
           <div style={{ fontSize: 64, marginBottom: 16 }}>{result.success ? '✨' : '😅'}</div>
-          <p style={{ fontSize: 20, fontWeight: 800, marginBottom: 24 }}>{result.message}</p>
-          <button className="btn btn-primary" onClick={onClose}>확인</button>
+          <p style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>
+            {result.success ? result.message : result.message.split('(')[0].trim()}
+          </p>
+          {!result.success && remainMs != null && remainMs > 0 && (
+            <div style={{ marginBottom: 24 }}>
+              <p style={{ fontSize: 13, color: 'var(--muted2)', marginBottom: 8 }}>다음 전송까지</p>
+              <p style={{ fontSize: 36, fontWeight: 800, color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>
+                {fmtMs(remainMs)}
+              </p>
+            </div>
+          )}
+          {(result.success || canRetry || result.cooldownMs == null) && (
+            <button className="btn btn-primary" style={{ marginBottom: result.success ? 0 : 8 }} onClick={onClose}>확인</button>
+          )}
+          {!result.success && !canRetry && remainMs != null && remainMs > 0 && (
+            <button className="btn btn-ghost" style={{ marginTop: 12 }} onClick={onClose}>닫기</button>
+          )}
+          {canRetry && (
+            <button className="btn btn-ghost" style={{ marginTop: 8 }} onClick={() => { setResult(null); setRemainMs(null) }}>다시 시도하기</button>
+          )}
         </div>
       </div>
     )
