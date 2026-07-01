@@ -57,9 +57,19 @@ export async function POST(req: NextRequest) {
     .eq('room_id', room_id).eq('session_token', sender_session).single()
   const sender_participant_id = senderParticipant?.id ?? null
 
+  // HOT 탭은 그 순간의 참여자 수를 value에 함께 기록해, 이후 인원이 바뀌어도
+  // 이미 반영된 탭의 증가분이 재계산되지 않도록 한다 (탭당 증가율이 인원수에 반비례하기 때문).
+  let insertValue = value ?? null
+  if (type === 'hot') {
+    const { count } = await supabase
+      .from('participants').select('id', { count: 'exact', head: true })
+      .eq('room_id', room_id)
+    insertValue = count ?? 1
+  }
+
   const { data, error } = await supabase
     .from('reactions')
-    .insert({ room_id, sender_session, sender_participant_id, receiver_id, type, value: value ?? null, round: round ?? 1 })
+    .insert({ room_id, sender_session, sender_participant_id, receiver_id, type, value: insertValue, round: round ?? 1 })
     .select('id, room_id, receiver_id, sender_participant_id, type, value, round, created_at')
     .single()
 
