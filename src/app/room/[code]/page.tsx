@@ -59,18 +59,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   }, [code, roomData, router])
 
   useEffect(() => {
-    if (!roomData) return
-    const handleUnload = () => {
-      navigator.sendBeacon('/api/participants', JSON.stringify({
-        participant_id: roomData.participantId,
-        session_token: getSessionToken(),
-      }))
-    }
-    window.addEventListener('beforeunload', handleUnload)
-    return () => window.removeEventListener('beforeunload', handleUnload)
-  }, [roomData])
-
-  useEffect(() => {
     const ticker = setInterval(() => setTick(n => n + 1), 10_000)
     return () => clearInterval(ticker)
   }, [])
