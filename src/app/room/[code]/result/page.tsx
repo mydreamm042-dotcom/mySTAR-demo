@@ -4,10 +4,11 @@ import { use, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { getRoomData, getSessionToken, clearRoomData } from '@/lib/session'
 import { createClient } from '@/lib/supabase/client'
-import { Participant, Reaction } from '@/lib/supabase/types'
+import { Participant, Reaction, Room } from '@/lib/supabase/types'
 import { calcHotIndex } from '@/lib/hotIndex'
 
 interface ResultData {
+  room: Room | null
   participants: Participant[]
   reactions: Reaction[]
   endVoteCounts: Record<string, number>
@@ -15,7 +16,7 @@ interface ResultData {
 
 const BUCKET_MS = 30 * 60 * 1000
 const HOT_BUCKET_MS = 10 * 60 * 1000
-const HOT_SAMPLE_STEP_MS = 60 * 1000
+const HOT_SAMPLES_PER_BUCKET = 10
 
 function makeBuckets(reactions: Reaction[], type: string) {
   const filtered = reactions.filter(r => r.type === type && r.created_at)
@@ -43,28 +44,32 @@ function makeBuckets(reactions: Reaction[], type: string) {
   return buckets
 }
 
-// hot 탭 "횟수"가 아니라, 10분 구간 동안 실제로 유지된 HOT 지수(%)를 1분 간격 샘플링해 평균낸다.
-function makeHotBuckets(reactions: Reaction[], participantCount: number) {
+// hot 탭 "횟수"가 아니라, 구간 동안 실제로 유지된 HOT 지수(%)를 1분 간격 샘플링해 평균낸다.
+// 버킷은 첫 탭 시각부터 시작하고(벽시계 10분 단위로 맞추지 않음), 방 종료 시각(없으면 지금)에서 잘라
+// 실제 활동이 없던 구간이 평균을 희석시키지 않도록 한다. 마지막 구간이 10분보다 짧으면 그 짧은 구간만 평균낸다.
+function makeHotBuckets(reactions: Reaction[], participantCount: number, roomEndedAt: number | null) {
   const hotReactions = reactions.filter(r => r.type === 'hot' && r.created_at)
   if (hotReactions.length === 0) return []
   const times = hotReactions.map(r => new Date(r.created_at!).getTime())
   const minT = Math.min(...times)
-  const maxT = Math.max(...times, Date.now())
-  const base = Math.floor(minT / HOT_BUCKET_MS) * HOT_BUCKET_MS
-  const count = Math.floor((maxT - base) / HOT_BUCKET_MS) + 1
+  const maxT = Math.max(roomEndedAt ?? Date.now(), minT)
+  const count = Math.max(1, Math.ceil((maxT - minT) / HOT_BUCKET_MS))
   const buckets: { label: string; value: number }[] = []
   for (let i = 0; i < count; i++) {
-    const bStart = base + i * HOT_BUCKET_MS
-    const bEnd = bStart + HOT_BUCKET_MS
+    const bStart = minT + i * HOT_BUCKET_MS
+    const bEnd = Math.min(bStart + HOT_BUCKET_MS, maxT)
+    // 버킷 길이와 무관하게 항상 고정된 개수(10개)의 지점을 균등 샘플링한다.
+    // 버킷이 10분보다 훨씬 짧을 때(예: 짧은 테스트 직후 방 종료) 고정 시간 간격으로
+    // 샘플링하면 표본이 1개만 잡혀 실제 활동을 놓칠 수 있기 때문.
+    const step = (bEnd - bStart) / HOT_SAMPLES_PER_BUCKET
     let sum = 0
-    let samples = 0
-    for (let t = bStart; t < bEnd; t += HOT_SAMPLE_STEP_MS) {
+    for (let s = 0; s < HOT_SAMPLES_PER_BUCKET; s++) {
+      const t = bStart + step * (s + 0.5)
       sum += calcHotIndex(hotReactions, participantCount, t)
-      samples++
     }
     const d = new Date(bStart)
     const label = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
-    buckets.push({ label, value: samples > 0 ? Math.round(sum / samples) : 0 })
+    buckets.push({ label, value: Math.round(sum / HOT_SAMPLES_PER_BUCKET) })
   }
   return buckets
 }
@@ -113,6 +118,7 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
     const rxData = await rxRes.json()
     const evData = await evRes.json()
     setData({
+      room: rData.room ?? null,
       participants: rData.participants ?? [],
       reactions: rxData.reactions ?? [],
       endVoteCounts: evData.counts ?? {},
@@ -159,7 +165,8 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
     : null
 
   const starBuckets = makeBuckets(data.reactions, 'star')
-  const hotBuckets = makeHotBuckets(data.reactions, data.participants.length)
+  const roomEndedAt = data.room?.ended_at ? new Date(data.room.ended_at).getTime() : null
+  const hotBuckets = makeHotBuckets(data.reactions, data.participants.length, roomEndedAt)
   const maxStarVal = starBuckets.length > 0 ? Math.max(...starBuckets.map(b => b.value), 5) : 5
 
   const seeAgainTop = Object.entries(data.endVoteCounts)
