@@ -3,8 +3,8 @@ export const HOT_DECAY_MS = 10 * 60 * 1000
 export const HOT_TOTAL_MS = HOT_HOLD_MS + HOT_DECAY_MS
 
 // 탭 1회당 증가율은 그 탭이 발생한 순간의 참여자 수에 반비례한다 (인원이 적으면 더 크게,
-// 많으면 더 작게 오른다). 기준값은 참여자 4명일 때 정확히 5%가 되도록 보정한 것.
-export const HOT_BASE_INCREMENT = 10
+// 많으면 더 작게 오른다). 기준값은 참여자 4명일 때 정확히 2%가 되도록 보정한 것.
+export const HOT_BASE_INCREMENT = 4
 
 // 탭 사이 경과 시간(elapsed)만큼 값을 감쇠시킨다: HOT_HOLD_MS 동안은 그대로 유지,
 // 이후 HOT_DECAY_MS에 걸쳐 0까지 선형 감소, 그 이후는 0.
