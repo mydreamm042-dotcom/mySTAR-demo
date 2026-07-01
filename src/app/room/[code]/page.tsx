@@ -8,32 +8,11 @@ import InteractionModal from '@/components/InteractionModal'
 import NotificationBanner from '@/components/NotificationBanner'
 import HeartToast, { showToast } from '@/components/HeartToast'
 import QRCodeDisplay from '@/components/QRCodeDisplay'
+import { calcHotIndex, HOT_HOLD_MS, HOT_TOTAL_MS } from '@/lib/hotIndex'
+import { WARNING_COOLDOWN_MS } from '@/lib/cooldown'
 
 function fmtCd(s: number) {
   return `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
-}
-
-const HOLD_MS   = 10 * 60 * 1000
-const DECAY_MS  = 10 * 60 * 1000
-const TOTAL_MS  = HOLD_MS + DECAY_MS
-const HOT_SCALE = 100 / 30
-
-function calcHotIndex(
-  serverHotReactions: { created_at: string }[],
-  participantCount: number,
-): number {
-  if (serverHotReactions.length === 0) return 0
-  const n = Math.max(1, participantCount)
-  const serverTimes = serverHotReactions.map(r => new Date(r.created_at).getTime())
-  const lastTapTime = Math.max(...serverTimes)
-  const peak = Math.min(100, Math.round(serverHotReactions.length / Math.sqrt(n) * HOT_SCALE))
-  const elapsed = Date.now() - lastTapTime
-  if (elapsed < HOLD_MS) return peak
-  if (elapsed < TOTAL_MS) {
-    const decayProgress = (elapsed - HOLD_MS) / DECAY_MS
-    return Math.max(0, Math.round(peak * (1 - decayProgress)))
-  }
-  return 0
 }
 
 export default function RoomPage({ params }: { params: Promise<{ code: string }> }) {
@@ -50,8 +29,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const [tick, setTick] = useState(0)
   const hotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const [warningCountdown, setWarningCountdown] = useState<number | null>(null)
-  const warningStartedRef = useRef(false)
   const [mutualBanner, setMutualBanner] = useState(false)
 
   useEffect(() => {
@@ -59,19 +36,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   }, [code, roomData, router])
 
   useEffect(() => {
-    if (!roomData) return
-    const handleUnload = () => {
-      navigator.sendBeacon('/api/participants', JSON.stringify({
-        participant_id: roomData.participantId,
-        session_token: getSessionToken(),
-      }))
-    }
-    window.addEventListener('beforeunload', handleUnload)
-    return () => window.removeEventListener('beforeunload', handleUnload)
-  }, [roomData])
-
-  useEffect(() => {
-    const ticker = setInterval(() => setTick(n => n + 1), 10_000)
+    const ticker = setInterval(() => setTick(n => n + 1), 1_000)
     return () => clearInterval(ticker)
   }, [])
 
@@ -101,24 +66,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     }
     return result
   }, [sendReaction])
-
-  useEffect(() => {
-    const myWarnCount = state.warningCounts[roomData?.participantId ?? ''] ?? 0
-    if (myWarnCount >= 1 && !warningStartedRef.current) {
-      warningStartedRef.current = true
-      setWarningCountdown(10 * 60)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.warningCounts])
-
-  useEffect(() => {
-    if (warningCountdown === null || warningCountdown <= 0) {
-      if (warningCountdown === 0) { setWarningCountdown(null); warningStartedRef.current = false }
-      return
-    }
-    const t = setTimeout(() => setWarningCountdown(c => (c !== null && c > 0 ? c - 1 : 0)), 1000)
-    return () => clearTimeout(t)
-  }, [warningCountdown])
 
   useEffect(() => {
     if (state.reactions.length > prevReactionCount && prevReactionCount > 0) {
@@ -194,13 +141,21 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   const serverTimes = serverHotReactions.map(r => new Date(r.created_at).getTime())
   const lastTapTime = serverTimes.length > 0 ? Math.max(...serverTimes) : 0
   const elapsed = lastTapTime > 0 ? Date.now() - lastTapTime : Infinity
-  const isDecaying = elapsed >= HOLD_MS && elapsed < TOTAL_MS
+  const isDecaying = elapsed >= HOT_HOLD_MS && elapsed < HOT_TOTAL_MS
 
   const flameLevel = hotIndex >= 80 ? 4 : hotIndex >= 60 ? 3 : hotIndex >= 40 ? 2 : hotIndex >= 20 ? 1 : 0
   const flickerKf = flameLevel >= 3 ? 'flame-intense' : 'flame-flicker'
   const flickerDur = flameLevel >= 4 ? '0.45s' : flameLevel === 3 ? '0.6s' : flameLevel === 2 ? '0.8s' : '1.1s'
   const hotColor = hotIndex >= 60 ? '#ef4444' : '#f97316'
-  const warningVisible = warningCountdown !== null
+
+  // 받은 자제 시그널 중 가장 최근 시각 기준으로 남은 휴식 시간을 계산 (새로고침해도 유지됨)
+  const myWarningReactions = state.reactions.filter(r => r.receiver_id === roomData.participantId && r.type === 'warning')
+  const lastWarningAt = myWarningReactions.length > 0
+    ? Math.max(...myWarningReactions.map(r => new Date(r.created_at).getTime()))
+    : null
+  const warningRemainingMs = lastWarningAt !== null ? Math.max(0, lastWarningAt + WARNING_COOLDOWN_MS - Date.now()) : 0
+  const warningVisible = warningRemainingMs > 0
+  const warningCountdown = Math.ceil(warningRemainingMs / 1000)
   const warningBottom = 100
 
   return (
@@ -360,8 +315,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       {warningVisible && (
         <div style={{ position: 'fixed', bottom: warningBottom, left: '50%', transform: 'translateX(-50%)', width: 'calc(100% - 40px)', maxWidth: 408, zIndex: 40, background: 'rgba(245,158,11,0.15)', border: '1.5px solid rgba(245,158,11,0.5)', borderRadius: 16, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 24 }}>🤫</span>
-          <p style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b', flex: 1 }}>우리 10분만 쉼어요</p>
-          <span style={{ fontSize: 22, fontWeight: 800, color: '#f59e0b', fontVariantNumeric: 'tabular-nums' }}>{fmtCd(warningCountdown!)}</span>
+          <p style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b', flex: 1 }}>우리 5분만 쉬어요</p>
+          <span style={{ fontSize: 22, fontWeight: 800, color: '#f59e0b', fontVariantNumeric: 'tabular-nums' }}>{fmtCd(warningCountdown)}</span>
         </div>
       )}
 
@@ -374,7 +329,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         <NotificationBanner round={state.notification.round} onOpen={() => { dismissNotification(); setShowModal(true) }} onDismiss={dismissNotification} />
       )}
       {showModal && (
-        <InteractionModal participants={state.participants} myParticipantId={roomData.participantId} round={state.currentRound} onSend={handleSend} onClose={() => setShowModal(false)} />
+        <InteractionModal participants={state.participants} reactions={state.reactions} myParticipantId={roomData.participantId} round={state.currentRound} onSend={handleSend} onClose={() => setShowModal(false)} />
       )}
       {showQR && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} onClick={() => setShowQR(false)}>

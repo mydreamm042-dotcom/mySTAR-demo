@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { ReactionType } from '@/lib/supabase/types'
+import { WARNING_COOLDOWN_MS, STAR_COOLDOWN_MS } from '@/lib/cooldown'
 
 export async function POST(req: NextRequest) {
   const { room_id, sender_session, receiver_id, type, value, round } = await req.json()
@@ -30,22 +31,22 @@ export async function POST(req: NextRequest) {
   }
 
   if (type === 'warning') {
-    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+    const cooldownStart = new Date(Date.now() - WARNING_COOLDOWN_MS).toISOString()
     const { data: existing } = await supabase
       .from('reactions').select('id')
       .eq('room_id', room_id).eq('sender_session', sender_session)
-      .eq('type', 'warning').gte('created_at', tenMinAgo).single()
+      .eq('type', 'warning').gte('created_at', cooldownStart).single()
     if (existing) {
-      return NextResponse.json({ error: '자제 시그널은 10분마다 보낼 수 있어요!' }, { status: 400 })
+      return NextResponse.json({ error: '자제 시그널은 5분마다 보낼 수 있어요!' }, { status: 400 })
     }
   }
 
   if (type === 'star') {
-    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+    const cooldownStart = new Date(Date.now() - STAR_COOLDOWN_MS).toISOString()
     const { data: existing } = await supabase
       .from('reactions').select('id')
       .eq('room_id', room_id).eq('sender_session', sender_session)
-      .eq('type', 'star').gte('created_at', thirtyMinAgo).single()
+      .eq('type', 'star').gte('created_at', cooldownStart).single()
     if (existing) {
       return NextResponse.json({ error: '별점은 30분마다 투표할 수 있어요!' }, { status: 400 })
     }

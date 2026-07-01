@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { getRoomData, getSessionToken, clearRoomData } from '@/lib/session'
 import { createClient } from '@/lib/supabase/client'
 import { Participant, Reaction } from '@/lib/supabase/types'
+import { calcHotIndex } from '@/lib/hotIndex'
 
 interface ResultData {
   participants: Participant[]
@@ -13,6 +14,8 @@ interface ResultData {
 }
 
 const BUCKET_MS = 30 * 60 * 1000
+const HOT_BUCKET_MS = 10 * 60 * 1000
+const HOT_SAMPLE_STEP_MS = 60 * 1000
 
 function makeBuckets(reactions: Reaction[], type: string) {
   const filtered = reactions.filter(r => r.type === type && r.created_at)
@@ -33,13 +36,35 @@ function makeBuckets(reactions: Reaction[], type: string) {
     if (inBucket.length > 0) {
       const d = new Date(bStart)
       const label = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
-      if (type === 'star') {
-        const avg = inBucket.reduce((a, r) => a + (r.value ?? 0), 0) / inBucket.length
-        buckets.push({ label, value: avg })
-      } else {
-        buckets.push({ label, value: inBucket.length })
-      }
+      const avg = inBucket.reduce((a, r) => a + (r.value ?? 0), 0) / inBucket.length
+      buckets.push({ label, value: avg })
     }
+  }
+  return buckets
+}
+
+// hot 탭 "횟수"가 아니라, 10분 구간 동안 실제로 유지된 HOT 지수(%)를 1분 간격 샘플링해 평균낸다.
+function makeHotBuckets(reactions: Reaction[], participantCount: number) {
+  const hotReactions = reactions.filter(r => r.type === 'hot' && r.created_at)
+  if (hotReactions.length === 0) return []
+  const times = hotReactions.map(r => new Date(r.created_at!).getTime())
+  const minT = Math.min(...times)
+  const maxT = Math.max(...times, Date.now())
+  const base = Math.floor(minT / HOT_BUCKET_MS) * HOT_BUCKET_MS
+  const count = Math.floor((maxT - base) / HOT_BUCKET_MS) + 1
+  const buckets: { label: string; value: number }[] = []
+  for (let i = 0; i < count; i++) {
+    const bStart = base + i * HOT_BUCKET_MS
+    const bEnd = bStart + HOT_BUCKET_MS
+    let sum = 0
+    let samples = 0
+    for (let t = bStart; t < bEnd; t += HOT_SAMPLE_STEP_MS) {
+      sum += calcHotIndex(hotReactions, participantCount, t)
+      samples++
+    }
+    const d = new Date(bStart)
+    const label = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+    buckets.push({ label, value: samples > 0 ? Math.round(sum / samples) : 0 })
   }
   return buckets
 }
@@ -134,9 +159,8 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
     : null
 
   const starBuckets = makeBuckets(data.reactions, 'star')
-  const hotBuckets = makeBuckets(data.reactions, 'hot')
+  const hotBuckets = makeHotBuckets(data.reactions, data.participants.length)
   const maxStarVal = starBuckets.length > 0 ? Math.max(...starBuckets.map(b => b.value), 5) : 5
-  const maxHotVal = hotBuckets.length > 0 ? Math.max(...hotBuckets.map(b => b.value), 1) : 1
 
   const seeAgainTop = Object.entries(data.endVoteCounts)
     .sort(([, a], [, b]) => b - a).slice(0, 5)
@@ -226,10 +250,10 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
           ) : (
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 110, paddingBottom: 20, position: 'relative' }}>
               {hotBuckets.map((b, i) => {
-                const h = (b.value / maxHotVal) * 76
+                const h = (b.value / 100) * 76
                 return (
                   <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end', gap: 3 }}>
-                    <span style={{ fontSize: 10, fontWeight: 800, color: '#f97316' }}>{b.value}</span>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: '#f97316' }}>{b.value}%</span>
                     <div style={{ width: '100%', borderRadius: '4px 4px 0 0', background: 'linear-gradient(180deg,#f97316,#ef4444)', height: h, minHeight: 4, transition: 'height 0.5s ease' }} />
                     <span style={{ fontSize: 9, color: 'var(--muted2)', position: 'absolute', bottom: 0 }}>{b.label}</span>
                   </div>

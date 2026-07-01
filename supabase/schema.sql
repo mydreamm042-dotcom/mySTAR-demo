@@ -60,6 +60,7 @@ CREATE POLICY "rooms_insert" ON rooms FOR INSERT WITH CHECK (true);
 CREATE POLICY "rooms_update" ON rooms FOR UPDATE USING (true);
 CREATE POLICY "participants_select" ON participants FOR SELECT USING (true);
 CREATE POLICY "participants_insert" ON participants FOR INSERT WITH CHECK (true);
+CREATE POLICY "participants_delete" ON participants FOR DELETE USING (true);
 CREATE POLICY "reactions_select" ON reactions FOR SELECT USING (true);
 CREATE POLICY "reactions_insert" ON reactions FOR INSERT WITH CHECK (true);
 CREATE POLICY "end_votes_select" ON end_votes FOR SELECT USING (true);
