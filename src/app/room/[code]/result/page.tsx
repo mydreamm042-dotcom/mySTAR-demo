@@ -172,6 +172,7 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
       </div>
 
       <div style={{ padding: '0 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* 하트 Top 3 */}
         <div className="card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <span style={{ fontSize: 20 }}>💖</span>
@@ -193,6 +194,7 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
           ))}
         </div>
 
+        {/* 시간별 만족도 */}
         <div className="card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <span style={{ fontSize: 20 }}>⭐</span>
@@ -216,6 +218,7 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
           )}
         </div>
 
+        {/* 시간별 HOT 지수 */}
         <div className="card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
             <span style={{ fontSize: 20 }}>🔥</span>
@@ -239,6 +242,7 @@ export default function ResultPage({ params }: { params: Promise<{ code: string 
           )}
         </div>
 
+        {/* 다음에 또 보고 싶은 사람 */}
         <div className="card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <span style={{ fontSize: 20 }}>🙋</span>

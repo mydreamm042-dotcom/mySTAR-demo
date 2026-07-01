@@ -15,6 +15,7 @@ export default function Home() {
           background: 'linear-gradient(135deg, #ff6b6b, #ee4444)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 36,
+          marginBottom: 24,
           boxShadow: '0 12px 32px rgba(255,107,107,0.4)',
           margin: '0 auto 24px',
         }}>👁️</div>

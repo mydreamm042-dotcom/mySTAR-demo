@@ -58,6 +58,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     if (!roomData || roomData.roomCode !== code) router.replace(`/join?code=${code}`)
   }, [code, roomData, router])
 
+  // 탭 닫거나 페이지 벗어날 때 자동 퇴장
   useEffect(() => {
     if (!roomData) return
     const handleUnload = () => {
@@ -124,6 +125,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   const serverHotCount = state.reactions.filter(r => r.type === 'hot').length
   useEffect(() => {
+    // Realtime HOT 확인되면 로컬 가짜 즉시 제거
     setLocalHotTimes([])
   }, [serverHotCount])
 
@@ -139,7 +141,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           }
         } else if (latest.type === 'warning') {
           const count = state.warningCounts[roomData?.participantId ?? ''] ?? 0
-          if (count >= 3) showToast({ emoji: '🤫', message: '잠긄, 오늘 좀 과한 것 같아요', color: '#f59e0b' })
+          if (count >= 3) showToast({ emoji: '🤫', message: '잠깐, 오늘 좀 과한 것 같아요', color: '#f59e0b' })
         }
       }
     }
@@ -180,7 +182,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     const id = Math.random().toString(36).slice(2)
     setHotFloaters(prev => [...prev, id])
     setTimeout(() => setHotFloaters(prev => prev.filter(x => x !== id)), 900)
-    // 낙관적 업데이트: 탭 즉시 로컈에 반영, Realtime 오면 자동 폴기
+    // 낙관적 업데이트: 탭 즉시 로컬에 반영, Realtime 오면 자동 교체
     const now = Date.now()
     setLocalHotTimes(prev => [...prev, now])
     if (roomData) {
@@ -216,6 +218,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   return (
     <main className="flex flex-col min-h-dvh" style={{ paddingBottom: 100 }}>
+      {/* 통했어요 배너 */}
       {mutualBanner && (
         <div
           onClick={() => setMutualBanner(false)}
@@ -236,6 +239,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       )}
 
+      {/* 상단 헤더 */}
       <div style={{ padding: '52px 20px 16px', background: 'linear-gradient(180deg,rgba(255,107,107,0.06) 0%,transparent 100%)' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 }}>
           <div>
@@ -269,6 +273,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
+      {/* 스탯 카드 */}
       <div style={{ padding: '0 20px', marginBottom: 16 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
           <div className="card" style={{ padding: '14px 8px', textAlign: 'center' }}>
@@ -321,6 +326,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
+      {/* HOT 버튼 */}
       <div style={{ padding: '0 20px', marginBottom: 16 }}>
         <div style={{ position: 'relative', display: 'flex', justifyContent: 'center' }}>
           {hotFloaters.map(id => (
@@ -340,10 +346,11 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
+      {/* 참여자 목록 */}
       <div style={{ padding: '0 20px', flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted2)' }}>참여자 목록</p>
-          <p style={{ fontSize: 12, color: 'var(--muted)' }}>영 {totalReactions}개 리액션</p>
+          <p style={{ fontSize: 12, color: 'var(--muted)' }}>총 {totalReactions}개 리액션</p>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {state.participants.map((p, idx) => {
@@ -375,6 +382,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         </div>
       </div>
 
+      {/* 경고 카운트다운 */}
       {warningVisible && (
         <div style={{
           position: 'fixed', bottom: 100, left: '50%', transform: 'translateX(-50%)',
@@ -384,16 +392,18 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           display: 'flex', alignItems: 'center', gap: 12,
         }}>
           <span style={{ fontSize: 24 }}>🤫</span>
-          <p style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b', flex: 1 }}>우리 10분만 쉐어요</p>
+          <p style={{ fontSize: 14, fontWeight: 700, color: '#f59e0b', flex: 1 }}>우리 10분만 쉬어요</p>
           <span style={{ fontSize: 22, fontWeight: 800, color: '#f59e0b', fontVariantNumeric: 'tabular-nums' }}>{fmtCd(warningCountdown!)}</span>
         </div>
       )}
 
+      {/* 하단 고정 버튼 */}
       <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 448, padding: '16px 20px 32px', background: 'linear-gradient(0deg,var(--bg) 60%,transparent)' }}>
         <button className="btn btn-primary" onClick={() => setShowModal(true)}
           style={{ fontSize: 18, minHeight: 60, boxShadow: '0 12px 32px rgba(255,107,107,0.5)' }}>✨ 지금 표현하기</button>
       </div>
 
+      {/* 알림 배너 */}
       {state.notification && (
         <NotificationBanner round={state.notification.round} onOpen={() => { dismissNotification(); setShowModal(true) }} onDismiss={dismissNotification} />
       )}
