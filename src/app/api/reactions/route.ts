@@ -34,19 +34,45 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 하트: 라운드당 1회 제한
-  if (type === 'heart') {
-    const { data: existing } = await supabase
+  // 별점: 30분에 1회 제한
+  if (type === 'star') {
+    const since = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+    const { data: recentStar } = await supabase
       .from('reactions')
-      .select('id')
+      .select('id, created_at')
       .eq('room_id', room_id)
       .eq('sender_session', sender_session)
-      .eq('type', 'heart')
-      .eq('round', round)
+      .eq('type', 'star')
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(1)
       .single()
 
-    if (existing) {
-      return NextResponse.json({ error: '이 라운드에서 이미 하트를 보냈습니다' }, { status: 400 })
+    if (recentStar) {
+      const remainMs = 30 * 60 * 1000 - (Date.now() - new Date(recentStar.created_at).getTime())
+      const remainMin = Math.ceil(remainMs / 60000)
+      return NextResponse.json({ error: `별점은 30분에 1회만 가능해요 (${remainMin}분 후 가능)` }, { status: 400 })
+    }
+  }
+
+  // 자제 시그널: 10분에 1회 제한
+  if (type === 'warning') {
+    const since = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+    const { data: recentWarn } = await supabase
+      .from('reactions')
+      .select('id, created_at')
+      .eq('room_id', room_id)
+      .eq('sender_session', sender_session)
+      .eq('type', 'warning')
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    if (recentWarn) {
+      const remainMs = 10 * 60 * 1000 - (Date.now() - new Date(recentWarn.created_at).getTime())
+      const remainMin = Math.ceil(remainMs / 60000)
+      return NextResponse.json({ error: `자제 시그널은 10분에 1회만 가능해요 (${remainMin}분 후 가능)` }, { status: 400 })
     }
   }
 
@@ -81,9 +107,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ reaction: data, warningCount: count ?? 0 })
   }
 
-  // 하트: 쌍방 호감 여부 계산 (서버에서 즉시 계산 — stale read 없음)
+  // 하트: 쌍방 호감 여부 계산
   if (type === 'heart' && sender_participant_id) {
-    // 내가 상대에게 보낸 하트 수 (방금 것 포함)
     const { data: mySent } = await supabase
       .from('reactions')
       .select('id')
@@ -92,7 +117,6 @@ export async function POST(req: NextRequest) {
       .eq('receiver_id', receiver_id)
       .eq('type', 'heart')
 
-    // 상대가 나에게 보낸 하트 수
     const { data: theirSent } = await supabase
       .from('reactions')
       .select('id')
@@ -103,8 +127,6 @@ export async function POST(req: NextRequest) {
 
     const myCount = mySent?.length ?? 0
     const theirCount = theirSent?.length ?? 0
-
-    // 쌍방 조건: 상대가 1개 이상 보냈고, 상대 횟수 >= 내 횟수
     const isMutual = theirCount > 0 && theirCount >= myCount
 
     return NextResponse.json({ reaction: data, isMutual })
