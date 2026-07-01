@@ -39,29 +39,6 @@ body {
 ::-webkit-scrollbar { width: 0; }
 
 /* 애니메이션 */
-@keyframes flame-flicker {
-  0%, 100% { transform: scaleY(1) rotate(-2deg); opacity: 0.9; }
-  50% { transform: scaleY(1.1) rotate(2deg); opacity: 1; }
-}
-
-@keyframes flame-intense {
-  0%, 100% { transform: scaleY(1) rotate(-3deg); opacity: 0.85; }
-  25% { transform: scaleY(1.15) rotate(3deg); opacity: 1; }
-  75% { transform: scaleY(0.95) rotate(-2deg); opacity: 0.9; }
-}
-
-@keyframes fire-pulse {
-  0%, 100% { box-shadow: none; }
-  50% { box-shadow: 0 0 20px rgba(249,115,22,0.3); }
-}
-
-@keyframes flame-blaze {
-  0%, 100% { transform: scale(1) rotate(-4deg); filter: drop-shadow(0 0 10px rgba(239,68,68,0.9)); }
-  25% { transform: scale(1.4) rotate(5deg); filter: drop-shadow(0 0 22px rgba(239,68,68,1)); }
-  50% { transform: scale(1.2) rotate(-3deg); filter: drop-shadow(0 0 28px rgba(251,191,36,1)); }
-  75% { transform: scale(1.45) rotate(4deg); filter: drop-shadow(0 0 18px rgba(239,68,68,0.95)); }
-}
-
 @keyframes slide-up {
   from { transform: translateY(40px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
