@@ -24,16 +24,14 @@ function calcHotIndex(
 ): number {
   if (serverHotReactions.length === 0) return 0
   const n = Math.max(1, participantCount)
-  const serverTimes = serverHotReactions.map(r => new Date(r.created_at).getTime())
-  const lastTapTime = Math.max(...serverTimes)
-  const peak = Math.min(100, Math.round(serverHotReactions.length / Math.sqrt(n) * HOT_SCALE))
-  const elapsed = Date.now() - lastTapTime
-  if (elapsed < HOLD_MS) return peak
-  if (elapsed < TOTAL_MS) {
-    const decayProgress = (elapsed - HOLD_MS) / DECAY_MS
-    return Math.max(0, Math.round(peak * (1 - decayProgress)))
-  }
-  return 0
+  const now = Date.now()
+  const score = serverHotReactions.reduce((sum, r) => {
+    const age = now - new Date(r.created_at).getTime()
+    if (age < HOLD_MS) return sum + 1
+    if (age < TOTAL_MS) return sum + (1 - (age - HOLD_MS) / DECAY_MS)
+    return sum
+  }, 0)
+  return Math.min(100, Math.round(score / Math.sqrt(n) * HOT_SCALE))
 }
 
 export default function RoomPage({ params }: { params: Promise<{ code: string }> }) {
@@ -212,9 +210,11 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
   void tick
   const hotIndex = calcHotIndex(serverHotReactions, state.participants.length)
 
-  const serverTimes = serverHotReactions.map(r => new Date(r.created_at).getTime())
-  const lastTapTime = serverTimes.length > 0 ? Math.max(...serverTimes) : 0
-  const elapsed = lastTapTime > 0 ? Date.now() - lastTapTime : Infinity
+  const nowMs = Date.now()
+  const lastTapTime = serverHotReactions.length > 0
+    ? Math.max(...serverHotReactions.map(r => new Date(r.created_at).getTime()))
+    : 0
+  const elapsed = lastTapTime > 0 ? nowMs - lastTapTime : Infinity
   const isDecaying = elapsed >= HOLD_MS && elapsed < TOTAL_MS
 
   const isBlazing = hotIndex >= 100
