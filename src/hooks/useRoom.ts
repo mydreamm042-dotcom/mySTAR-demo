@@ -1,185 +1,135 @@
-'use client'
-
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Participant, Reaction, NotificationRound } from '@/lib/supabase/types'
 import { getRoomData, getSessionToken } from '@/lib/session'
+import { Participant, Reaction } from '@/lib/supabase/types'
 
-export interface RoomState {
+interface RoomState {
   participants: Participant[]
   reactions: Reaction[]
-  currentRound: number
-  rounds: NotificationRound[]
   warningCounts: Record<string, number>
   moodAverages: Record<number, number>
-  notification: { type: 'round'; round: number } | null
+  currentRound: number
+  roomStatus: 'active' | 'ended' | null
+  notification: { round: number } | null
 }
 
-export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => void) {
+export function useRoom(
+  roomId: string,
+  code: string,
+  onRoomEnded: () => void,
+) {
   const [state, setState] = useState<RoomState>({
     participants: [],
     reactions: [],
-    currentRound: 1,
-    rounds: [],
     warningCounts: {},
     moodAverages: {},
+    currentRound: 1,
+    roomStatus: null,
     notification: null,
   })
-  const supabase = createClient()
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const roomData = getRoomData()
+
   const onRoomEndedRef = useRef(onRoomEnded)
-  useEffect(() => { onRoomEndedRef.current = onRoomEnded }, [onRoomEnded])
-  const endedRef = useRef(false)
+  onRoomEndedRef.current = onRoomEnded
 
   const fetchInitial = useCallback(async () => {
-    const [pRes, rRes, nRes] = await Promise.all([
-      fetch(`/api/rooms/${roomCode}`),
-      fetch(`/api/reactions?room_id=${roomId}`),
-      fetch(`/api/notification-rounds?room_id=${roomId}`),
+    if (!roomId) return
+    const [rRes, rxRes] = await Promise.all([
+      fetch('/api/rooms/' + code),
+      fetch('/api/reactions?room_id=' + roomId),
     ])
-
-    const pData = await pRes.json()
     const rData = await rRes.json()
-    const nData = await nRes.json()
+    const rxData = await rxRes.json()
 
-    const reactions: Reaction[] = rData.reactions ?? []
-    const rounds: NotificationRound[] = nData.rounds ?? []
-    const currentRound = rounds.length > 0 ? Math.max(...rounds.map((r) => r.round_number)) : 1
+    const participants: Participant[] = rData.participants ?? []
+    const reactions: Reaction[] = rxData.reactions ?? []
+    const room = rData.room
 
     const warningCounts: Record<string, number> = {}
-    reactions.filter(r => r.type === 'warning').forEach(r => {
+    reactions.filter((r: Reaction) => r.type === 'warning').forEach((r: Reaction) => {
       warningCounts[r.receiver_id] = (warningCounts[r.receiver_id] ?? 0) + 1
     })
 
     const moodAverages: Record<number, number> = {}
-    const starsByRound: Record<number, number[]> = {}
-    reactions.filter(r => r.type === 'star').forEach(r => {
-      if (!starsByRound[r.round]) starsByRound[r.round] = []
-      if (r.value) starsByRound[r.round].push(r.value)
-    })
-    Object.entries(starsByRound).forEach(([round, values]) => {
-      moodAverages[Number(round)] = values.reduce((a, b) => a + b, 0) / values.length
+    const starReactions = reactions.filter((r: Reaction) => r.type === 'star' && r.value)
+    const rounds = [...new Set(starReactions.map((r: Reaction) => r.round))]
+    rounds.forEach(round => {
+      const roundStars = starReactions.filter((r: Reaction) => r.round === round)
+      moodAverages[round] = roundStars.reduce((a: number, r: Reaction) => a + (r.value ?? 0), 0) / roundStars.length
     })
 
     setState(prev => ({
       ...prev,
-      participants: pData.participants ?? [],
+      participants,
       reactions,
-      currentRound,
-      rounds,
       warningCounts,
       moodAverages,
+      currentRound: room?.current_round ?? 1,
+      roomStatus: room?.status ?? null,
     }))
-  }, [roomId, roomCode])
 
-  const startRoundTimer = useCallback(() => {
-    if (timerRef.current) clearInterval(timerRef.current)
-    timerRef.current = setInterval(async () => {
-      setState(prev => {
-        const nextRound = prev.currentRound + 1
-        fetch('/api/notification-rounds', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ room_id: roomId, round_number: nextRound }),
-        })
-        if ('vibrate' in navigator) navigator.vibrate([200, 100, 200])
-        return { ...prev, currentRound: nextRound, notification: { type: 'round', round: nextRound } }
-      })
-    }, 60 * 60 * 1000)
-  }, [roomId])
+    if (room?.status === 'ended') {
+      onRoomEndedRef.current()
+    }
+  }, [roomId, code])
 
   useEffect(() => {
+    if (!roomId) return
     fetchInitial()
-    startRoundTimer()
+
+    const supabase = createClient()
+    const roomData = getRoomData()
 
     const channel = supabase
-      .channel(`room:${roomId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'participants', filter: `room_id=eq.${roomId}` },
-        (payload) => {
-          setState(prev => ({ ...prev, participants: [...prev.participants, payload.new as Participant] }))
-        }
-      )
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'participants', filter: `room_id=eq.${roomId}` },
-        (payload) => {
-          const deleted = payload.old as { id: string }
-          setState(prev => ({ ...prev, participants: prev.participants.filter(p => p.id !== deleted.id) }))
-        }
-      )
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `room_id=eq.${roomId}` },
-        (payload) => {
-          const r = payload.new as Reaction & { sender_session: string }
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { sender_session: _s, ...safeReaction } = r
-          setState(prev => {
-            const reactions = [...prev.reactions, safeReaction]
-            const warningCounts = { ...prev.warningCounts }
-            if (safeReaction.type === 'warning') {
-              warningCounts[safeReaction.receiver_id] = (warningCounts[safeReaction.receiver_id] ?? 0) + 1
-            }
-            const moodAverages = { ...prev.moodAverages }          
-            if (safeReaction.type === 'star' && safeReaction.value) {
-              const roundStars = reactions.filter(rx => rx.type === 'star' && rx.round === safeReaction.round)
-              const vals = roundStars.map(rx => rx.value!).filter(Boolean)
-              moodAverages[safeReaction.round] = vals.reduce((a, b) => a + b, 0) / vals.length
-            }
-            return { ...prev, reactions, warningCounts, moodAverages }
-          })
-
-          const myParticipantId = roomData?.participantId
-          if (safeReaction.receiver_id === myParticipantId) {
-            if (safeReaction.type === 'heart') {
-              if ('vibrate' in navigator) navigator.vibrate(300)
-            }
-            if (safeReaction.type === 'warning') {
-              setState(prev => {
-                const count = (prev.warningCounts[safeReaction.receiver_id] ?? 0)
-                if (count >= 3 && 'vibrate' in navigator) navigator.vibrate([100, 50, 100, 50, 200])
-                return prev
-              })
-            }
+      .channel('room-' + roomId)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'participants', filter: `room_id=eq.${roomId}` }, (payload) => {
+        setState(prev => ({ ...prev, participants: [...prev.participants, payload.new as Participant] }))
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'participants', filter: `room_id=eq.${roomId}` }, (payload) => {
+        setState(prev => ({ ...prev, participants: prev.participants.filter(p => p.id !== (payload.old as Participant).id) }))
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions', filter: `room_id=eq.${roomId}` }, (payload) => {
+        const r = payload.new as Reaction
+        setState(prev => {
+          const reactions = [r, ...prev.reactions]
+          const warningCounts = { ...prev.warningCounts }
+          if (r.type === 'warning') {
+            warningCounts[r.receiver_id] = (warningCounts[r.receiver_id] ?? 0) + 1
           }
-        }
-      )
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },
-        (payload) => {
-          if ((payload.new as { status: string }).status === 'ended') {
-            if (!endedRef.current) { endedRef.current = true; onRoomEndedRef.current?.() }
+          const moodAverages = { ...prev.moodAverages }
+          if (r.type === 'star' && r.value) {
+            const roundStars = reactions.filter(rx => rx.type === 'star' && rx.round === r.round && rx.value)
+            moodAverages[r.round] = roundStars.reduce((a, rx) => a + (rx.value ?? 0), 0) / roundStars.length
           }
+          return { ...prev, reactions, warningCounts, moodAverages }
+        })
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` }, (payload) => {
+        const room = payload.new
+        setState(prev => ({ ...prev, roomStatus: room.status, currentRound: room.current_round ?? prev.currentRound }))
+        if (room.status === 'ended') {
+          onRoomEndedRef.current()
         }
-      )
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notification_rounds', filter: `room_id=eq.${roomId}` },
-        (payload) => {
-          const round = payload.new as NotificationRound
-          setState(prev => ({
-            ...prev,
-            rounds: [...prev.rounds, round],
-            currentRound: round.round_number,
-            notification: { type: 'round', round: round.round_number },
-          }))
-          if ('vibrate' in navigator) navigator.vibrate([200, 100, 200])
-        }
-      )
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notification_rounds', filter: `room_id=eq.${roomId}` }, (payload) => {
+        const nr = payload.new
+        setState(prev => ({ ...prev, currentRound: nr.round_number, notification: { round: nr.round_number } }))
+      })
       .subscribe()
 
-    const poll = setInterval(async () => {
-      if (endedRef.current) return
-      try {
-        const res = await fetch(`/api/rooms/${roomCode}`)
-        const d = await res.json()
-        if (d.room?.status === 'ended') {
-          if (!endedRef.current) { endedRef.current = true; onRoomEndedRef.current?.() }
-        }
-      } catch { /* ignore */ }
+    const pollInterval = setInterval(async () => {
+      if (!roomData) return
+      const res = await fetch('/api/rooms/' + code)
+      const data = await res.json()
+      if (data.room?.status === 'ended') {
+        onRoomEndedRef.current()
+      }
     }, 5000)
 
     return () => {
       supabase.removeChannel(channel)
-      if (timerRef.current) clearInterval(timerRef.current)
-      clearInterval(poll)
+      clearInterval(pollInterval)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId])
+  }, [roomId, code, fetchInitial])
 
   const sendReaction = useCallback(async (
     receiver_id: string,
@@ -190,17 +140,12 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
     const res = await fetch('/api/reactions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        room_id: roomId,
-        sender_session,
-        receiver_id,
-        type,
-        value,
-        round: state.currentRound,
-      }),
+      body: JSON.stringify({ receiver_id, type, value, sender_session }),
     })
-    return res.json()
-  }, [roomId, state.currentRound])
+    const data = await res.json()
+    if (!res.ok) return { error: data.error ?? '오류', warningCount: 0 }
+    return { error: undefined, warningCount: data.warningCount ?? 0, isMutual: data.isMutual ?? false }
+  }, [])
 
   const dismissNotification = useCallback(() => {
     setState(prev => ({ ...prev, notification: null }))
