@@ -125,3 +125,58 @@ RETURNS json LANGUAGE sql STABLE AS $$
 $$;
 
 GRANT EXECUTE ON FUNCTION get_reaction_summary(uuid) TO anon, authenticated;
+
+-- 자제 시그널/별점 쿨타임 체크와 저장을 하나의 원자적 작업으로 묶는다.
+-- 기존에는 "최근 기록 확인" -> "저장"이 API 서버에서 별도의 두 요청으로 분리되어 있어서,
+-- 그 사이 틈에 같은 사람이 거의 동시에 또 요청을 보내면 둘 다 통과해 쿨타임이 뚫릴 수 있었다.
+-- pg_advisory_xact_lock으로 "같은 발신자 + 같은 리액션 종류" 요청끼리만 순서대로 처리되도록
+-- 잠그고, 그 안에서 확인과 저장을 함께 수행해 경쟁 상태를 없앤다. 다른 발신자나 다른 종류의
+-- 요청은 서로 전혀 대기하지 않는다.
+CREATE OR REPLACE FUNCTION submit_cooldown_reaction(
+  p_room_id uuid,
+  p_sender_session text,
+  p_sender_participant_id uuid,
+  p_receiver_id uuid,
+  p_type text,
+  p_value int,
+  p_round int,
+  p_cooldown_seconds int
+) RETURNS json LANGUAGE plpgsql AS $$
+DECLARE
+  v_existing timestamptz;
+  v_row reactions%ROWTYPE;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext(p_sender_session || p_type)::bigint);
+
+  SELECT created_at INTO v_existing
+  FROM reactions
+  WHERE room_id = p_room_id
+    AND sender_session = p_sender_session
+    AND type = p_type
+    AND created_at >= now() - (p_cooldown_seconds || ' seconds')::interval
+  ORDER BY created_at DESC
+  LIMIT 1;
+
+  IF v_existing IS NOT NULL THEN
+    RETURN json_build_object('cooldown', true);
+  END IF;
+
+  INSERT INTO reactions (room_id, sender_session, sender_participant_id, receiver_id, type, value, round)
+  VALUES (p_room_id, p_sender_session, p_sender_participant_id, p_receiver_id, p_type, p_value, p_round)
+  RETURNING * INTO v_row;
+
+  RETURN json_build_object(
+    'cooldown', false,
+    'id', v_row.id,
+    'room_id', v_row.room_id,
+    'receiver_id', v_row.receiver_id,
+    'sender_participant_id', v_row.sender_participant_id,
+    'type', v_row.type,
+    'value', v_row.value,
+    'round', v_row.round,
+    'created_at', v_row.created_at
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION submit_cooldown_reaction(uuid, text, uuid, uuid, text, int, int, int) TO anon, authenticated;
