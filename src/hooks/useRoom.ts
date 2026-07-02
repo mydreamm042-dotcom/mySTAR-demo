@@ -12,7 +12,15 @@ export interface RoomState {
   rounds: NotificationRound[]
   warningCounts: Record<string, number>  // receiver_id → count
   moodAverages: Record<number, number>   // round → average
+  heartCounts: Record<string, number>    // receiver_id → count
   notification: { type: 'round'; round: number } | null
+}
+
+interface ReactionSummary {
+  heart_counts: Record<string, number>
+  warning_counts: Record<string, number>
+  mood_averages: Record<string, number>
+  total_reactions: number
 }
 
 export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => void) {
@@ -23,6 +31,7 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
     rounds: [],
     warningCounts: {},
     moodAverages: {},
+    heartCounts: {},
     notification: null,
   })
   const supabase = createClient()
@@ -31,6 +40,8 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
   const onRoomEndedRef = useRef(onRoomEnded)
   useEffect(() => { onRoomEndedRef.current = onRoomEnded }, [onRoomEnded])
 
+  // 최초 접속 시 1번만 호출되는 전체 데이터 부트스트랩 (원본 reactions 전부 포함).
+  // 이후 실시간 갱신은 realtime 구독 + 아래의 가벼운 재조회(fetchSummary)가 담당한다.
   const fetchInitial = useCallback(async () => {
     const [pRes, rRes, nRes] = await Promise.all([
       fetch(`/api/rooms/${roomCode}`),
@@ -46,13 +57,13 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
     const rounds: NotificationRound[] = nData.rounds ?? []
     const currentRound = rounds.length > 0 ? Math.max(...rounds.map((r) => r.round_number)) : 1
 
-    // 자제 시그널 집계
     const warningCounts: Record<string, number> = {}
-    reactions.filter(r => r.type === 'warning').forEach(r => {
-      warningCounts[r.receiver_id] = (warningCounts[r.receiver_id] ?? 0) + 1
+    const heartCounts: Record<string, number> = {}
+    reactions.forEach(r => {
+      if (r.type === 'warning') warningCounts[r.receiver_id] = (warningCounts[r.receiver_id] ?? 0) + 1
+      if (r.type === 'heart') heartCounts[r.receiver_id] = (heartCounts[r.receiver_id] ?? 0) + 1
     })
 
-    // 분위기 평균 집계
     const moodAverages: Record<number, number> = {}
     const starsByRound: Record<number, number[]> = {}
     reactions.filter(r => r.type === 'star').forEach(r => {
@@ -71,7 +82,47 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
       rounds,
       warningCounts,
       moodAverages,
+      heartCounts,
     }))
+  }, [roomId, roomCode])
+
+  // 3초마다 도는 가벼운 재조회: 전체 reactions를 다시 받는 대신, DB가 미리 집계한
+  // 요약치(하트/경고 수, 평균 별점)와 HOT 탭만 새로 받아온다. 파티가 길어져 reactions가
+  // 아무리 쌓여도 이 폴링 비용은 커지지 않는다. (하트/경고 등 원본 리액션의 세부 내역은
+  // realtime 구독으로 실시간 갱신되며, 이 재조회는 realtime이 놓친 참여자/HOT 지수/집계치만 복구한다)
+  const fetchSummary = useCallback(async () => {
+    const [pRes, sRes, hRes, nRes] = await Promise.all([
+      fetch(`/api/rooms/${roomCode}`),
+      fetch(`/api/reactions/summary?room_id=${roomId}`),
+      fetch(`/api/reactions?room_id=${roomId}&type=hot`),
+      fetch(`/api/notification-rounds?room_id=${roomId}`),
+    ])
+
+    const pData = await pRes.json()
+    const sData = await sRes.json()
+    const hData = await hRes.json()
+    const nData = await nRes.json()
+
+    const summary: ReactionSummary | undefined = sData.summary
+    const hotReactions: Reaction[] = hData.reactions ?? []
+    const rounds: NotificationRound[] = nData.rounds ?? []
+    const currentRound = rounds.length > 0 ? Math.max(...rounds.map((r) => r.round_number)) : 1
+
+    setState(prev => {
+      const nonHotReactions = prev.reactions.filter(r => r.type !== 'hot')
+      return {
+        ...prev,
+        participants: pData.participants ?? prev.participants,
+        reactions: [...nonHotReactions, ...hotReactions],
+        rounds,
+        currentRound,
+        warningCounts: summary?.warning_counts ?? prev.warningCounts,
+        heartCounts: summary?.heart_counts ?? prev.heartCounts,
+        moodAverages: summary
+          ? Object.fromEntries(Object.entries(summary.mood_averages).map(([k, v]) => [Number(k), v]))
+          : prev.moodAverages,
+      }
+    })
   }, [roomId, roomCode])
 
   // 1시간 타이머
@@ -96,9 +147,9 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
   // Realtime 구독이 놓친 이벤트를 주기적으로 재조회해 복구한다
   // (예: 참여자가 나갔다 들어왔을 때 그 사이의 소켓 재연결 타이밍에 이벤트가 누락될 수 있음)
   useEffect(() => {
-    const reconcileTimer = setInterval(() => { fetchInitial() }, 3_000)
+    const reconcileTimer = setInterval(() => { fetchSummary() }, 3_000)
     return () => clearInterval(reconcileTimer)
-  }, [fetchInitial])
+  }, [fetchSummary])
 
   useEffect(() => {
     fetchInitial()
@@ -127,8 +178,12 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
           setState(prev => {
             const reactions = [...prev.reactions, safeReaction]
             const warningCounts = { ...prev.warningCounts }
+            const heartCounts = { ...prev.heartCounts }
             if (safeReaction.type === 'warning') {
               warningCounts[safeReaction.receiver_id] = (warningCounts[safeReaction.receiver_id] ?? 0) + 1
+            }
+            if (safeReaction.type === 'heart') {
+              heartCounts[safeReaction.receiver_id] = (heartCounts[safeReaction.receiver_id] ?? 0) + 1
             }
             const moodAverages = { ...prev.moodAverages }
             if (safeReaction.type === 'star' && safeReaction.value) {
@@ -136,7 +191,7 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
               const vals = roundStars.map(rx => rx.value!).filter(Boolean)
               moodAverages[safeReaction.round] = vals.reduce((a, b) => a + b, 0) / vals.length
             }
-            return { ...prev, reactions, warningCounts, moodAverages }
+            return { ...prev, reactions, warningCounts, heartCounts, moodAverages }
           })
 
           // 수신자에게 알림

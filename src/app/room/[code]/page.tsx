@@ -132,8 +132,10 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   if (!roomData) return null
 
-  const myHearts = state.reactions.filter(r => r.receiver_id === roomData.participantId && r.type === 'heart').length
-  const totalReactions = state.reactions.filter(r => r.type !== 'hot').length
+  const myHearts = state.heartCounts[roomData.participantId] ?? 0
+  const totalReactions = Object.values(state.heartCounts).reduce((a, b) => a + b, 0)
+    + Object.values(state.warningCounts).reduce((a, b) => a + b, 0)
+    + state.reactions.filter(r => r.type === 'star').length
   const serverHotReactions = state.reactions.filter(r => r.type === 'hot')
   void tick
   const hotIndex = calcHotIndex(serverHotReactions)
@@ -272,7 +274,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {state.participants.map((p, idx) => {
             const isMe = p.id === roomData.participantId
-            const heartCount = state.reactions.filter(r => r.receiver_id === p.id && r.type === 'heart').length
+            const heartCount = state.heartCounts[p.id] ?? 0
             const warnCount = state.warningCounts[p.id] ?? 0
             const isHost = idx === 0
             return (

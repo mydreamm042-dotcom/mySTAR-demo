@@ -84,3 +84,44 @@ BEGIN
     AND created_at < now() - INTERVAL '24 hours';
 END;
 $$;
+
+-- 하트/경고/별점 집계를 DB에서 미리 계산해서 반환한다 (클라이언트가 매번 원본
+-- reactions 전체를 내려받아 직접 세지 않도록 하기 위함. 3초마다 도는 재조회 폴링이
+-- 파티가 길어질수록 느려지는 걸 막는 용도).
+CREATE OR REPLACE FUNCTION get_reaction_summary(p_room_id uuid)
+RETURNS json LANGUAGE sql STABLE AS $$
+  SELECT json_build_object(
+    'heart_counts', (
+      SELECT coalesce(json_object_agg(receiver_id, cnt), '{}'::json)
+      FROM (
+        SELECT receiver_id, count(*) AS cnt
+        FROM reactions
+        WHERE room_id = p_room_id AND type = 'heart'
+        GROUP BY receiver_id
+      ) h
+    ),
+    'warning_counts', (
+      SELECT coalesce(json_object_agg(receiver_id, cnt), '{}'::json)
+      FROM (
+        SELECT receiver_id, count(*) AS cnt
+        FROM reactions
+        WHERE room_id = p_room_id AND type = 'warning'
+        GROUP BY receiver_id
+      ) w
+    ),
+    'mood_averages', (
+      SELECT coalesce(json_object_agg(round, avg_value), '{}'::json)
+      FROM (
+        SELECT round, avg(value) AS avg_value
+        FROM reactions
+        WHERE room_id = p_room_id AND type = 'star' AND value IS NOT NULL
+        GROUP BY round
+      ) s
+    ),
+    'total_reactions', (
+      SELECT count(*) FROM reactions WHERE room_id = p_room_id AND type != 'hot'
+    )
+  );
+$$;
+
+GRANT EXECUTE ON FUNCTION get_reaction_summary(uuid) TO anon, authenticated;
