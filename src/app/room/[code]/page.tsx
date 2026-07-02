@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { getRoomData, getSessionToken, clearRoomData } from '@/lib/session'
 import { useRoom } from '@/hooks/useRoom'
 import InteractionModal from '@/components/InteractionModal'
-import NotificationBanner from '@/components/NotificationBanner'
 import HeartToast, { showToast } from '@/components/HeartToast'
 import QRCodeDisplay from '@/components/QRCodeDisplay'
 import { calcHotIndex, HOT_HOLD_MS, HOT_TOTAL_MS } from '@/lib/hotIndex'
@@ -40,7 +39,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     return () => clearInterval(ticker)
   }, [])
 
-  const { state, sendReaction, dismissNotification } = useRoom(
+  const { state, sendReaction } = useRoom(
     roomData?.roomId ?? '',
     code,
     () => router.push(`/room/${code}/result`),
@@ -327,9 +326,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
           style={{ fontSize: 18, minHeight: 60, boxShadow: '0 12px 32px rgba(255,107,107,0.5)' }}>✨ 지금 표현하기</button>
       </div>
 
-      {state.notification && (
-        <NotificationBanner round={state.notification.round} onOpen={() => { dismissNotification(); setShowModal(true) }} onDismiss={dismissNotification} />
-      )}
       {showModal && (
         <InteractionModal participants={state.participants} reactions={state.reactions} myParticipantId={roomData.participantId} round={state.currentRound} onSend={handleSend} onClose={() => setShowModal(false)} />
       )}

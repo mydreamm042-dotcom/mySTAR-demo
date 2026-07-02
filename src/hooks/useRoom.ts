@@ -13,7 +13,6 @@ export interface RoomState {
   warningCounts: Record<string, number>  // receiver_id → count
   moodAverages: Record<number, number>   // round → average
   heartCounts: Record<string, number>    // receiver_id → count
-  notification: { type: 'round'; round: number } | null
 }
 
 interface ReactionSummary {
@@ -32,10 +31,8 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
     warningCounts: {},
     moodAverages: {},
     heartCounts: {},
-    notification: null,
   })
   const supabase = createClient()
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const roomData = getRoomData()
   const onRoomEndedRef = useRef(onRoomEnded)
   useEffect(() => { onRoomEndedRef.current = onRoomEnded }, [onRoomEnded])
@@ -125,25 +122,6 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
     })
   }, [roomId, roomCode])
 
-  // 1시간 타이머
-  const startRoundTimer = useCallback(() => {
-    if (timerRef.current) clearInterval(timerRef.current)
-    timerRef.current = setInterval(async () => {
-      setState(prev => {
-        const nextRound = prev.currentRound + 1
-        // 새 라운드 저장
-        fetch('/api/notification-rounds', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ room_id: roomId, round_number: nextRound }),
-        })
-        // 진동
-        if ('vibrate' in navigator) navigator.vibrate([200, 100, 200])
-        return { ...prev, currentRound: nextRound, notification: { type: 'round', round: nextRound } }
-      })
-    }, 60 * 60 * 1000) // 1시간
-  }, [roomId])
-
   // Realtime 구독이 놓친 이벤트를 주기적으로 재조회해 복구한다
   // (예: 참여자가 나갔다 들어왔을 때 그 사이의 소켓 재연결 타이밍에 이벤트가 누락될 수 있음)
   useEffect(() => {
@@ -153,7 +131,6 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
 
   useEffect(() => {
     fetchInitial()
-    startRoundTimer()
 
     // Realtime 구독
     const channel = supabase
@@ -219,23 +196,10 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
           }
         }
       )
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notification_rounds', filter: `room_id=eq.${roomId}` },
-        (payload) => {
-          const round = payload.new as NotificationRound
-          setState(prev => ({
-            ...prev,
-            rounds: [...prev.rounds, round],
-            currentRound: round.round_number,
-            notification: { type: 'round', round: round.round_number },
-          }))
-          if ('vibrate' in navigator) navigator.vibrate([200, 100, 200])
-        }
-      )
       .subscribe()
 
     return () => {
       supabase.removeChannel(channel)
-      if (timerRef.current) clearInterval(timerRef.current)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId])
@@ -261,9 +225,5 @@ export function useRoom(roomId: string, roomCode: string, onRoomEnded?: () => vo
     return res.json()
   }, [roomId, state.currentRound])
 
-  const dismissNotification = useCallback(() => {
-    setState(prev => ({ ...prev, notification: null }))
-  }, [])
-
-  return { state, sendReaction, dismissNotification, refetch: fetchInitial }
+  return { state, sendReaction, refetch: fetchInitial }
 }
